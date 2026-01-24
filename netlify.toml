@@ -1,9 +1,13 @@
 [build]
   functions = "netlify/functions"
   publish = "public"
+  command = "echo 'Build complete'"
 
 [functions]
   node_bundler = "esbuild"
+
+[build.environment]
+  NODE_VERSION = "18"
   
 # Redirect API calls to functions
 [[redirects]]
@@ -39,10 +43,4 @@
 [[redirects]]
   from = "/api/presence"
   to = "/.netlify/functions/presence"
-  status = 200
-
-# SPA fallback
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
   status = 200
