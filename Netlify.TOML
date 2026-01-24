@@ -1,0 +1,48 @@
+[build]
+  functions = "netlify/functions"
+  publish = "public"
+
+[functions]
+  node_bundler = "esbuild"
+  
+# Redirect API calls to functions
+[[redirects]]
+  from = "/api/auth/*"
+  to = "/.netlify/functions/auth/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/api/rooms/*"
+  to = "/.netlify/functions/rooms/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/api/rooms"
+  to = "/.netlify/functions/rooms"
+  status = 200
+
+[[redirects]]
+  from = "/api/playlists/*"
+  to = "/.netlify/functions/playlists/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/api/playlists"
+  to = "/.netlify/functions/playlists"
+  status = 200
+
+[[redirects]]
+  from = "/api/presence/*"
+  to = "/.netlify/functions/presence/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/api/presence"
+  to = "/.netlify/functions/presence"
+  status = 200
+
+# SPA fallback
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
