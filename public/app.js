@@ -124,7 +124,9 @@ api.playlists = {
   delete: function(playlistId) { return api.request('/playlists/' + playlistId, { method: 'DELETE' }); },
   addVideo: function(playlistId, video) { return api.request('/playlists/' + playlistId + '/videos', { method: 'POST', body: JSON.stringify(video) }).then(function(d) { return d.video; }); },
   removeVideo: function(playlistId, videoId) { return api.request('/playlists/' + playlistId + '/videos/' + videoId, { method: 'DELETE' }); },
-  reorderVideos: function(playlistId, videoIds) { return api.request('/playlists/' + playlistId + '/reorder', { method: 'PUT', body: JSON.stringify({ videoIds: videoIds }) }); }
+  updateVideo: function(playlistId, videoId, updates) { return api.request('/playlists/' + playlistId + '/videos/' + videoId, { method: 'PUT', body: JSON.stringify(updates) }); },
+  reorderVideos: function(playlistId, videoIds) { return api.request('/playlists/' + playlistId + '/reorder', { method: 'PUT', body: JSON.stringify({ videoIds: videoIds }) }); },
+  reorder: function(roomId, playlistIds) { return api.request('/playlists/reorder', { method: 'PUT', body: JSON.stringify({ roomId: roomId, playlistIds: playlistIds }) }); }
 };
 
 api.presence = {
@@ -211,15 +213,11 @@ function DragonFire() {
 }
 
 // ============================================
-// Video Player with Sync Support
+// Video Player
 // ============================================
 function VideoPlayer(props) {
   var video = props.video;
   var onEnded = props.onEnded;
-  var playbackState = props.playbackState;
-  var onPlaybackChange = props.onPlaybackChange;
-  var isOwner = props.isOwner;
-  var videoRef = useRef(null);
 
   if (!video) {
     return React.createElement('div', { className: 'video-placeholder' },
@@ -232,44 +230,39 @@ function VideoPlayer(props) {
   var parsed = parseVideoUrl(video.url);
   if (!parsed) return React.createElement('div', { className: 'video-error' }, 'Invalid video URL');
 
-  // For YouTube - use iframe with enablejsapi for control
   if (parsed.type === 'youtube') {
-    var ytParams = 'autoplay=1&rel=0&enablejsapi=1';
-    if (playbackState && playbackState.currentTime) {
-      ytParams += '&start=' + Math.floor(playbackState.currentTime);
-    }
     return React.createElement('iframe', { 
-      id: 'video-player',
-      src: 'https://www.youtube.com/embed/' + parsed.id + '?' + ytParams, 
+      key: video.url,
+      src: 'https://www.youtube.com/embed/' + parsed.id + '?autoplay=1&rel=0', 
       allow: 'autoplay; encrypted-media', 
       allowFullScreen: true, 
       className: 'video-frame' 
     });
   }
   if (parsed.type === 'vimeo') {
-    return React.createElement('iframe', { src: 'https://player.vimeo.com/video/' + parsed.id + '?autoplay=1', allow: 'autoplay; fullscreen', allowFullScreen: true, className: 'video-frame' });
+    return React.createElement('iframe', { key: video.url, src: 'https://player.vimeo.com/video/' + parsed.id + '?autoplay=1', allow: 'autoplay; fullscreen', allowFullScreen: true, className: 'video-frame' });
   }
   if (parsed.type === 'spotify') {
-    return React.createElement('iframe', { src: 'https://open.spotify.com/embed/' + parsed.contentType + '/' + parsed.id + '?theme=0', allow: 'autoplay; encrypted-media', className: 'video-frame', style: { minHeight: '152px' } });
+    return React.createElement('iframe', { key: video.url, src: 'https://open.spotify.com/embed/' + parsed.contentType + '/' + parsed.id + '?theme=0', allow: 'autoplay; encrypted-media', className: 'video-frame', style: { minHeight: '152px' } });
   }
   if (parsed.type === 'soundcloud') {
-    return React.createElement('iframe', { src: 'https://w.soundcloud.com/player/?url=' + encodeURIComponent(parsed.url) + '&auto_play=true', className: 'video-frame', style: { minHeight: '166px' } });
+    return React.createElement('iframe', { key: video.url, src: 'https://w.soundcloud.com/player/?url=' + encodeURIComponent(parsed.url) + '&auto_play=true', className: 'video-frame', style: { minHeight: '166px' } });
   }
   if (parsed.type === 'direct') {
     if (video.url.match(/\.(mp3|wav|m4a)$/i)) {
       return React.createElement('div', { className: 'video-placeholder' },
         React.createElement('div', { style: { fontSize: '48px' } }, '🎵'),
         React.createElement('p', null, video.title),
-        React.createElement('audio', { ref: videoRef, src: video.url, controls: true, autoPlay: true, onEnded: onEnded, style: { width: '80%', maxWidth: '400px' } })
+        React.createElement('audio', { key: video.url, src: video.url, controls: true, autoPlay: true, onEnded: onEnded, style: { width: '80%', maxWidth: '400px' } })
       );
     }
-    return React.createElement('video', { ref: videoRef, src: video.url, controls: true, autoPlay: true, onEnded: onEnded, className: 'video-frame' });
+    return React.createElement('video', { key: video.url, src: video.url, controls: true, autoPlay: true, onEnded: onEnded, className: 'video-frame' });
   }
   return React.createElement('div', { className: 'video-error' }, 'Unsupported format');
 }
 
 // ============================================
-// Connected Users with Context Menu Fix
+// Connected Users
 // ============================================
 function ConnectedUsers(props) {
   var users = props.users;
@@ -286,12 +279,8 @@ function ConnectedUsers(props) {
 
   function handleRightClick(e, user) {
     e.preventDefault();
-    // Calculate position to keep menu in viewport
-    var x = e.clientX;
-    var y = e.clientY;
-    // Adjust if too close to edges
-    if (x + 180 > window.innerWidth) x = window.innerWidth - 180;
-    if (y + 150 > window.innerHeight) y = window.innerHeight - 150;
+    var x = Math.min(e.clientX, window.innerWidth - 180);
+    var y = Math.min(e.clientY, window.innerHeight - 150);
     setContextMenu({ x: x, y: y, user: user });
   }
 
@@ -304,7 +293,6 @@ function ConnectedUsers(props) {
   var onlineUsers = users.filter(function(u) { return u.status === 'online'; });
   var offlineUsers = users.filter(function(u) { return u.status !== 'online'; });
   
-  // Sort: owner first, then alphabetically
   function sortUsers(list) {
     return list.slice().sort(function(a, b) {
       if (a.isOwner && !b.isOwner) return -1;
@@ -317,13 +305,14 @@ function ConnectedUsers(props) {
   var sortedOffline = sortUsers(offlineUsers);
 
   function renderUser(user) {
-    var isYou = user.visitorId === currentUserId;
-    var isGuest = user.guestId || (user.visitorId && user.visitorId.startsWith && user.visitorId.startsWith('guest_'));
+    var visId = user.visitorId || user.guestId;
+    var isYou = visId === currentUserId;
+    var isGuest = user.guestId || (visId && visId.startsWith && visId.startsWith('guest_'));
     var statusClass = user.status || 'offline';
     var badgeStyle = user.color ? { background: user.color } : {};
     
     return React.createElement('div', {
-      key: user.visitorId || user.guestId,
+      key: visId,
       className: 'user-badge ' + statusClass + (isYou ? ' is-you' : '') + (user.isOwner ? ' is-owner' : ''),
       style: badgeStyle,
       onContextMenu: function(e) { handleRightClick(e, user); }
@@ -383,13 +372,14 @@ function ConnectedUsers(props) {
 }
 
 // ============================================
-// Draggable Video List
+// Draggable Video List with Rename
 // ============================================
 function DraggableVideoList(props) {
   var videos = props.videos || [];
   var currentVideo = props.currentVideo;
   var onPlay = props.onPlay;
   var onRemove = props.onRemove;
+  var onRename = props.onRename;
   var onReorder = props.onReorder;
   
   var _dragItem = useState(null);
@@ -399,6 +389,14 @@ function DraggableVideoList(props) {
   var _dragOver = useState(null);
   var dragOver = _dragOver[0];
   var setDragOver = _dragOver[1];
+  
+  var _editingId = useState(null);
+  var editingId = _editingId[0];
+  var setEditingId = _editingId[1];
+  
+  var _editTitle = useState('');
+  var editTitle = _editTitle[0];
+  var setEditTitle = _editTitle[1];
 
   function handleDragStart(e, index) {
     setDragItem(index);
@@ -433,21 +431,35 @@ function DraggableVideoList(props) {
     setDragOver(null);
   }
 
+  function startRename(video) {
+    setEditingId(video.id);
+    setEditTitle(video.title || video.url);
+  }
+
+  function saveRename(videoId) {
+    if (editTitle.trim()) {
+      onRename(videoId, editTitle.trim());
+    }
+    setEditingId(null);
+    setEditTitle('');
+  }
+
   if (videos.length === 0) {
     return React.createElement('div', { className: 'empty-queue' }, React.createElement('p', null, 'No videos in playlist'));
   }
 
   return React.createElement('div', { className: 'video-list' },
     videos.map(function(v, i) {
-      var isPlaying = currentVideo && currentVideo.id === v.id;
+      var isPlaying = currentVideo && (currentVideo.id === v.id || currentVideo.url === v.url);
       var isDragging = dragItem === i;
       var isDragOver = dragOver === i;
+      var isEditing = editingId === v.id;
       var parsed = parseVideoUrl(v.url);
       
       return React.createElement('div', { 
         key: v.id, 
         className: 'video-item' + (isPlaying ? ' playing' : '') + (isDragging ? ' dragging' : '') + (isDragOver ? ' drag-over' : ''),
-        draggable: true,
+        draggable: !isEditing,
         onDragStart: function(e) { handleDragStart(e, i); },
         onDragOver: function(e) { handleDragOver(e, i); },
         onDrop: function(e) { handleDrop(e, i); },
@@ -457,11 +469,25 @@ function DraggableVideoList(props) {
           React.createElement('div', { className: 'drag-handle' }, React.createElement(Icon, { name: 'grip', size: 'sm' })),
           React.createElement('span', { className: 'video-index' }, i + 1),
           React.createElement('span', { className: 'video-type-icon' }, getVideoTypeIcon(parsed ? parsed.type : null)),
-          React.createElement('span', { className: 'video-title', onClick: function() { onPlay(v, i); } }, v.title || v.url)
+          isEditing 
+            ? React.createElement('input', {
+                className: 'video-edit-input',
+                value: editTitle,
+                onChange: function(e) { setEditTitle(e.target.value); },
+                onBlur: function() { saveRename(v.id); },
+                onKeyDown: function(e) { 
+                  if (e.key === 'Enter') saveRename(v.id);
+                  if (e.key === 'Escape') { setEditingId(null); setEditTitle(''); }
+                },
+                autoFocus: true,
+                onClick: function(e) { e.stopPropagation(); }
+              })
+            : React.createElement('span', { className: 'video-title', onClick: function() { onPlay(v, i); } }, v.title || v.url)
         ),
         React.createElement('div', { className: 'video-actions' },
-          React.createElement('button', { className: 'icon-btn sm primary', onClick: function() { onPlay(v, i); }, title: 'Play' }, React.createElement(Icon, { name: 'play', size: 'sm' })),
-          React.createElement('button', { className: 'icon-btn sm danger', onClick: function() { onRemove(v.id); }, title: 'Remove' }, React.createElement(Icon, { name: 'trash', size: 'sm' }))
+          React.createElement('button', { className: 'icon-btn sm primary', onClick: function(e) { e.stopPropagation(); onPlay(v, i); }, title: 'Play' }, React.createElement(Icon, { name: 'play', size: 'sm' })),
+          React.createElement('button', { className: 'icon-btn sm', onClick: function(e) { e.stopPropagation(); startRename(v); }, title: 'Rename' }, React.createElement(Icon, { name: 'edit', size: 'sm' })),
+          React.createElement('button', { className: 'icon-btn sm danger', onClick: function(e) { e.stopPropagation(); onRemove(v.id); }, title: 'Remove' }, React.createElement(Icon, { name: 'trash', size: 'sm' }))
         )
       );
     })
@@ -469,7 +495,7 @@ function DraggableVideoList(props) {
 }
 
 // ============================================
-// Playlist Panel with Rename
+// Draggable Playlist Panel
 // ============================================
 function PlaylistPanel(props) {
   var playlists = props.playlists;
@@ -478,6 +504,7 @@ function PlaylistPanel(props) {
   var onCreate = props.onCreate;
   var onDelete = props.onDelete;
   var onRename = props.onRename;
+  var onReorder = props.onReorder;
   
   var _showCreate = useState(false);
   var showCreate = _showCreate[0];
@@ -494,6 +521,14 @@ function PlaylistPanel(props) {
   var _editName = useState('');
   var editName = _editName[0];
   var setEditName = _editName[1];
+  
+  var _dragItem = useState(null);
+  var dragItem = _dragItem[0];
+  var setDragItem = _dragItem[1];
+  
+  var _dragOver = useState(null);
+  var dragOver = _dragOver[0];
+  var setDragOver = _dragOver[1];
 
   function handleCreate() {
     if (!newName.trim()) return;
@@ -512,6 +547,41 @@ function PlaylistPanel(props) {
   function startEdit(playlist) {
     setEditingId(playlist.id);
     setEditName(playlist.name);
+  }
+
+  function handleDragStart(e, index) {
+    setDragItem(index);
+    e.dataTransfer.effectAllowed = 'move';
+  }
+
+  function handleDragOver(e, index) {
+    e.preventDefault();
+    if (dragItem === null) return;
+    setDragOver(index);
+  }
+
+  function handleDrop(e, index) {
+    e.preventDefault();
+    if (dragItem === null || dragItem === index) {
+      setDragItem(null);
+      setDragOver(null);
+      return;
+    }
+    
+    var newPlaylists = playlists.slice();
+    var item = newPlaylists.splice(dragItem, 1)[0];
+    newPlaylists.splice(index, 0, item);
+    
+    if (onReorder) {
+      onReorder(newPlaylists.map(function(p) { return p.id; }));
+    }
+    setDragItem(null);
+    setDragOver(null);
+  }
+
+  function handleDragEnd() {
+    setDragItem(null);
+    setDragOver(null);
   }
 
   return React.createElement('div', { className: 'playlist-panel' },
@@ -537,11 +607,22 @@ function PlaylistPanel(props) {
     React.createElement('div', { className: 'playlists-list' },
       playlists.length === 0 
         ? React.createElement('div', { className: 'empty-playlists' }, 'No playlists yet')
-        : playlists.map(function(p) {
+        : playlists.map(function(p, i) {
             var isActive = activePlaylist && activePlaylist.id === p.id;
             var isEditing = editingId === p.id;
+            var isDragging = dragItem === i;
+            var isDragOver = dragOver === i;
             
-            return React.createElement('div', { key: p.id, className: 'playlist-item' + (isActive ? ' active' : '') },
+            return React.createElement('div', { 
+              key: p.id, 
+              className: 'playlist-item' + (isActive ? ' active' : '') + (isDragging ? ' dragging' : '') + (isDragOver ? ' drag-over' : ''),
+              draggable: !isEditing,
+              onDragStart: function(e) { handleDragStart(e, i); },
+              onDragOver: function(e) { handleDragOver(e, i); },
+              onDrop: function(e) { handleDrop(e, i); },
+              onDragEnd: handleDragEnd
+            },
+              React.createElement('div', { className: 'drag-handle' }, React.createElement(Icon, { name: 'grip', size: 'sm' })),
               isEditing 
                 ? React.createElement('input', {
                     className: 'playlist-edit-input',
@@ -559,10 +640,10 @@ function PlaylistPanel(props) {
                     React.createElement('span', { className: 'playlist-count' }, (p.videos || []).length)
                   ),
               React.createElement('div', { className: 'playlist-actions' },
-                React.createElement('button', { className: 'icon-btn sm', onClick: function() { startEdit(p); }, title: 'Rename' },
+                React.createElement('button', { className: 'icon-btn sm', onClick: function(e) { e.stopPropagation(); startEdit(p); }, title: 'Rename' },
                   React.createElement(Icon, { name: 'edit', size: 'sm' })
                 ),
-                React.createElement('button', { className: 'icon-btn sm danger', onClick: function() { onDelete(p.id); }, title: 'Delete' },
+                React.createElement('button', { className: 'icon-btn sm danger', onClick: function(e) { e.stopPropagation(); onDelete(p.id); }, title: 'Delete' },
                   React.createElement(Icon, { name: 'trash', size: 'sm' })
                 )
               )
@@ -743,7 +824,6 @@ function GuestJoinModal(props) {
 // ============================================
 function AuthScreen(props) {
   var onAuth = props.onAuth;
-  var returnTo = props.returnTo;
   
   var _mode = useState('login');
   var mode = _mode[0];
@@ -1082,10 +1162,6 @@ function Room(props) {
   var connectedUsers = _connectedUsers[0];
   var setConnectedUsers = _connectedUsers[1];
   
-  var _playbackState = useState({});
-  var playbackState = _playbackState[0];
-  var setPlaybackState = _playbackState[1];
-  
   var fileInputRef = useRef(null);
   var syncInterval = useRef(null);
   var lastSyncTime = useRef(null);
@@ -1095,10 +1171,13 @@ function Room(props) {
   var isOwner = user && user.id === hostId;
   var displayName = guestDisplayName || (user ? user.displayName : 'Guest');
 
-  // Sync room state
   function syncRoomState() {
     api.rooms.getSync(room.id).then(function(data) {
-      if (data.members) setConnectedUsers(data.members);
+      console.log('Sync data:', data);
+      
+      if (data.members) {
+        setConnectedUsers(data.members);
+      }
       
       if (data.playlists) {
         setPlaylists(data.playlists);
@@ -1110,27 +1189,42 @@ function Room(props) {
         }
       }
       
-      // Sync video if not local change
-      if (data.room && data.room.playbackUpdatedAt && !localChange.current) {
-        var serverTime = new Date(data.room.playbackUpdatedAt).getTime();
-        if (!lastSyncTime.current || serverTime > lastSyncTime.current) {
-          if (data.room.currentVideoUrl) {
-            var newVideo = { id: 'synced', title: data.room.currentVideoTitle || data.room.currentVideoUrl, url: data.room.currentVideoUrl };
-            if (!currentVideo || currentVideo.url !== newVideo.url) {
-              setCurrentVideo(newVideo);
-            }
-          } else if (currentVideo && currentVideo.id === 'synced') {
-            setCurrentVideo(null);
+      // Sync video from server
+      if (data.room && !localChange.current) {
+        var serverTime = data.room.playbackUpdatedAt ? new Date(data.room.playbackUpdatedAt).getTime() : 0;
+        var shouldSync = !lastSyncTime.current || serverTime > lastSyncTime.current;
+        
+        if (shouldSync && data.room.currentVideoUrl) {
+          var serverVideo = { 
+            id: 'synced_' + serverTime, 
+            title: data.room.currentVideoTitle || data.room.currentVideoUrl, 
+            url: data.room.currentVideoUrl 
+          };
+          
+          // Only update if URL changed
+          if (!currentVideo || currentVideo.url !== serverVideo.url) {
+            console.log('Syncing video:', serverVideo);
+            setCurrentVideo(serverVideo);
           }
+          lastSyncTime.current = serverTime;
+        } else if (shouldSync && !data.room.currentVideoUrl && currentVideo && currentVideo.id && currentVideo.id.startsWith('synced_')) {
+          setCurrentVideo(null);
           lastSyncTime.current = serverTime;
         }
       }
+      
       localChange.current = false;
-    }).catch(console.error);
+    }).catch(function(err) {
+      console.error('Sync error:', err);
+    });
   }
 
   useEffect(function() {
-    api.rooms.join(room.id, displayName).then(syncRoomState).catch(console.error);
+    console.log('Joining room:', room.id);
+    api.rooms.join(room.id, displayName).then(function() {
+      console.log('Joined room, starting sync');
+      syncRoomState();
+    }).catch(console.error);
     
     syncInterval.current = setInterval(function() {
       api.presence.heartbeat(room.id, 'online').catch(console.error);
@@ -1149,12 +1243,19 @@ function Room(props) {
   }
 
   function broadcastVideo(video) {
+    console.log('Broadcasting video:', video);
     localChange.current = true;
+    lastSyncTime.current = Date.now();
+    
     api.rooms.updateSync(room.id, {
       currentVideoUrl: video ? video.url : null,
-      currentVideoTitle: video ? video.title : null,
+      currentVideoTitle: video ? (video.title || video.url) : null,
       currentPlaylistId: activePlaylist ? activePlaylist.id : null
-    }).catch(console.error);
+    }).then(function() {
+      console.log('Broadcast success');
+    }).catch(function(err) {
+      console.error('Broadcast error:', err);
+    });
   }
 
   function handleCreatePlaylist(name) {
@@ -1185,6 +1286,12 @@ function Room(props) {
     }).catch(function(err) { showNotif('Failed: ' + err.message, 'error'); });
   }
 
+  function handleReorderPlaylists(playlistIds) {
+    api.playlists.reorder(room.id, playlistIds).catch(function(err) {
+      console.error('Reorder failed:', err);
+    });
+  }
+
   function handleAddUrl() {
     if (!activePlaylist || !urlInput.trim()) return;
     var parsed = parseVideoUrl(urlInput.trim());
@@ -1200,6 +1307,7 @@ function Room(props) {
   }
 
   function playVideo(video, index) {
+    console.log('Playing video:', video, 'at index:', index);
     setCurrentVideo(video);
     setCurrentIndex(index);
     broadcastVideo(video);
@@ -1209,7 +1317,7 @@ function Room(props) {
     if (!urlInput.trim()) return;
     var parsed = parseVideoUrl(urlInput.trim());
     if (!parsed) { showNotif('Invalid URL', 'error'); return; }
-    var video = { id: 'temp', title: urlInput, url: urlInput.trim() };
+    var video = { id: 'direct_' + Date.now(), title: urlInput, url: urlInput.trim() };
     setCurrentVideo(video);
     broadcastVideo(video);
     setUrlInput('');
@@ -1244,6 +1352,19 @@ function Room(props) {
       setActivePlaylist(updated);
       if (currentVideo && currentVideo.id === videoId) setCurrentVideo(null);
       showNotif('Removed!');
+    }).catch(function(err) { showNotif('Failed: ' + err.message, 'error'); });
+  }
+
+  function renameVideo(videoId, title) {
+    if (!activePlaylist) return;
+    api.playlists.updateVideo(activePlaylist.id, videoId, { title: title }).then(function() {
+      var newVideos = (activePlaylist.videos || []).map(function(v) {
+        return v.id === videoId ? Object.assign({}, v, { title: title }) : v;
+      });
+      var updated = Object.assign({}, activePlaylist, { videos: newVideos });
+      setPlaylists(playlists.map(function(p) { return p.id === activePlaylist.id ? updated : p; }));
+      setActivePlaylist(updated);
+      showNotif('Renamed!');
     }).catch(function(err) { showNotif('Failed: ' + err.message, 'error'); });
   }
 
@@ -1335,7 +1456,8 @@ function Room(props) {
           onSelect: setActivePlaylist,
           onCreate: handleCreatePlaylist,
           onDelete: handleDeletePlaylist,
-          onRename: handleRenamePlaylist
+          onRename: handleRenamePlaylist,
+          onReorder: handleReorderPlaylists
         })
       ),
       
@@ -1350,18 +1472,19 @@ function Room(props) {
                 currentVideo: currentVideo,
                 onPlay: playVideo,
                 onRemove: removeVideo,
+                onRename: renameVideo,
                 onReorder: reorderVideos
               })
             : React.createElement('div', { className: 'empty-queue' }, React.createElement('p', null, 'Select a playlist'))
         ),
         
         React.createElement('div', { className: 'video-section' },
-          React.createElement(VideoPlayer, { video: currentVideo, onEnded: playNext, playbackState: playbackState, isOwner: isOwner }),
+          React.createElement(VideoPlayer, { video: currentVideo, onEnded: playNext }),
           React.createElement('div', { className: 'playback-controls' },
             React.createElement('button', { className: 'btn sm', onClick: playPrev, disabled: !activePlaylist || currentIndex <= 0 }, React.createElement(Icon, { name: 'prev', size: 'sm' }), ' Prev'),
             React.createElement('div', { className: 'now-playing' },
               currentVideo 
-                ? React.createElement(React.Fragment, null, React.createElement('span', { className: 'playing-label' }, 'Now playing'), React.createElement('span', { className: 'playing-title' }, currentVideo.title))
+                ? React.createElement(React.Fragment, null, React.createElement('span', { className: 'playing-label' }, 'Now playing'), React.createElement('span', { className: 'playing-title' }, currentVideo.title || currentVideo.url))
                 : React.createElement('span', { className: 'playing-label' }, 'Nothing playing')
             ),
             React.createElement('button', { className: 'btn sm', onClick: playNext, disabled: !activePlaylist || currentIndex >= ((activePlaylist && activePlaylist.videos || []).length) - 1 }, 'Next ', React.createElement(Icon, { name: 'next', size: 'sm' }))
@@ -1407,10 +1530,6 @@ function MultiviewApp() {
   var _loading = useState(true);
   var loading = _loading[0];
   var setLoading = _loading[1];
-  
-  var _error = useState(null);
-  var error = _error[0];
-  var setError = _error[1];
   
   var _currentView = useState('home');
   var currentView = _currentView[0];
@@ -1478,14 +1597,12 @@ function MultiviewApp() {
         return; 
       }
       
-      // If user is logged in, join directly with their display name
       if (currentUser) {
         setCurrentRoom(room);
         setRoomHostId(hostId);
         setGuestDisplayName(currentUser.displayName);
         setCurrentView('room');
       } else {
-        // Show guest modal for non-logged-in users
         setPendingRoom({ room: room, hostId: hostId });
         setShowGuestModal(true);
       }
@@ -1561,7 +1678,7 @@ function MultiviewApp() {
   }
 
   if (showAuthScreen) {
-    return React.createElement(AuthScreen, { onAuth: handleAuthComplete, returnTo: pendingRoom });
+    return React.createElement(AuthScreen, { onAuth: handleAuthComplete });
   }
 
   if (!user && currentView !== 'room') {
