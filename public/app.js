@@ -1,23 +1,26 @@
 // ============================================
-// MULTIVIEW.VIDEO - Complete Database Version
+// MULTIVIEW.VIDEO - Complete Synchronized Version
 // ============================================
 
-const { useState, useEffect, useRef, useCallback } = React;
+var useState = React.useState;
+var useEffect = React.useEffect;
+var useRef = React.useRef;
+var useCallback = React.useCallback;
 
-const GOOGLE_CLIENT_ID = window.APP_CONFIG?.GOOGLE_CLIENT_ID || '';
-const API_BASE = '/api';
-const PRESENCE_INTERVAL = 10000;
+var GOOGLE_CLIENT_ID = window.APP_CONFIG?.GOOGLE_CLIENT_ID || '';
+var API_BASE = '/api';
+var SYNC_INTERVAL = 2000;
 
 // ============================================
 // API Client
 // ============================================
-const api = {
-  getToken() { return localStorage.getItem('mv_token'); },
-  setToken(token) { localStorage.setItem('mv_token', token); },
-  clearToken() { localStorage.removeItem('mv_token'); },
+var api = {
+  getToken: function() { return localStorage.getItem('mv_token'); },
+  setToken: function(token) { localStorage.setItem('mv_token', token); },
+  clearToken: function() { localStorage.removeItem('mv_token'); },
   
-  getGuestId() {
-    let guestId = localStorage.getItem('mv_guest_id');
+  getGuestId: function() {
+    var guestId = localStorage.getItem('mv_guest_id');
     if (!guestId) {
       guestId = 'guest_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
       localStorage.setItem('mv_guest_id', guestId);
@@ -25,115 +28,117 @@ const api = {
     return guestId;
   },
 
-  async request(endpoint, options) {
+  request: function(endpoint, options) {
     options = options || {};
-    const token = this.getToken();
-    const headers = { 'Content-Type': 'application/json' };
+    var token = this.getToken();
+    var headers = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = 'Bearer ' + token;
 
-    const response = await fetch(API_BASE + endpoint, {
+    return fetch(API_BASE + endpoint, {
       method: options.method || 'GET',
       headers: headers,
       body: options.body
+    }).then(function(response) {
+      return response.json().then(function(data) {
+        if (!response.ok) throw new Error(data.error || 'Request failed');
+        return data;
+      });
     });
-    
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Request failed');
-    return data;
   }
 };
 
 api.auth = {
-  async register(email, username, password, displayName) {
-    const data = await api.request('/auth/register', {
+  register: function(email, username, password, displayName) {
+    return api.request('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ email, username, password, displayName })
-    });
-    api.setToken(data.token);
-    return data.user;
-  },
-  async login(identifier, password) {
-    const data = await api.request('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ identifier, password })
-    });
-    api.setToken(data.token);
-    return data.user;
-  },
-  async googleLogin(credential) {
-    const data = await api.request('/auth/google', {
-      method: 'POST',
-      body: JSON.stringify({ credential })
-    });
-    api.setToken(data.token);
-    return data.user;
-  },
-  async logout() {
-    try { await api.request('/auth/logout', { method: 'POST' }); } catch(e) {}
-    api.clearToken();
-  },
-  async getCurrentUser() {
-    if (!api.getToken()) return null;
-    try {
-      const data = await api.request('/auth/me');
+      body: JSON.stringify({ email: email, username: username, password: password, displayName: displayName })
+    }).then(function(data) {
+      api.setToken(data.token);
       return data.user;
-    } catch(e) { api.clearToken(); return null; }
-  },
-  async updateProfile(updates) {
-    const data = await api.request('/auth/profile', {
-      method: 'PUT',
-      body: JSON.stringify(updates)
     });
-    return data.user;
   },
-  async deleteAccount() {
-    await api.request('/auth/account', { method: 'DELETE' });
-    api.clearToken();
+  login: function(identifier, password) {
+    return api.request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ identifier: identifier, password: password })
+    }).then(function(data) {
+      api.setToken(data.token);
+      return data.user;
+    });
+  },
+  googleLogin: function(credential) {
+    return api.request('/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ credential: credential })
+    }).then(function(data) {
+      api.setToken(data.token);
+      return data.user;
+    });
+  },
+  logout: function() {
+    return api.request('/auth/logout', { method: 'POST' }).catch(function() {}).then(function() {
+      api.clearToken();
+    });
+  },
+  getCurrentUser: function() {
+    if (!api.getToken()) return Promise.resolve(null);
+    return api.request('/auth/me').then(function(data) {
+      return data.user;
+    }).catch(function() {
+      api.clearToken();
+      return null;
+    });
+  },
+  deleteAccount: function() {
+    return api.request('/auth/account', { method: 'DELETE' }).then(function() {
+      api.clearToken();
+    });
   }
 };
 
 api.rooms = {
-  async list() { return (await api.request('/rooms')).rooms || []; },
-  async get(roomId) { return (await api.request('/rooms/' + roomId)).room; },
-  async create(name) { return (await api.request('/rooms', { method: 'POST', body: JSON.stringify({ name }) })).room; },
-  async update(roomId, updates) { return (await api.request('/rooms/' + roomId, { method: 'PUT', body: JSON.stringify(updates) })).room; },
-  async delete(roomId) { await api.request('/rooms/' + roomId, { method: 'DELETE' }); },
-  async join(roomId, displayName) {
-    const guestId = api.getToken() ? null : api.getGuestId();
-    await api.request('/rooms/' + roomId + '/join', { method: 'POST', body: JSON.stringify({ displayName, guestId }) });
+  list: function() { return api.request('/rooms').then(function(d) { return d.rooms || []; }); },
+  get: function(roomId) { return api.request('/rooms/' + roomId).then(function(d) { return d.room; }); },
+  create: function(name) { return api.request('/rooms', { method: 'POST', body: JSON.stringify({ name: name }) }).then(function(d) { return d.room; }); },
+  update: function(roomId, updates) { return api.request('/rooms/' + roomId, { method: 'PUT', body: JSON.stringify(updates) }).then(function(d) { return d.room; }); },
+  delete: function(roomId) { return api.request('/rooms/' + roomId, { method: 'DELETE' }); },
+  join: function(roomId, displayName) {
+    var guestId = api.getToken() ? null : api.getGuestId();
+    return api.request('/rooms/' + roomId + '/join', { method: 'POST', body: JSON.stringify({ displayName: displayName, guestId: guestId }) });
   },
-  async kick(roomId, visitorId, guestId) {
-    await api.request('/rooms/' + roomId + '/kick', { method: 'POST', body: JSON.stringify({ visitorId, guestId }) });
+  kick: function(roomId, visitorId, guestId) {
+    return api.request('/rooms/' + roomId + '/kick', { method: 'POST', body: JSON.stringify({ visitorId: visitorId, guestId: guestId }) });
   },
-  async getSync(roomId) {
-    return await api.request('/rooms/' + roomId + '/sync');
+  getSync: function(roomId) {
+    return api.request('/rooms/' + roomId + '/sync');
   },
-  async updateSync(roomId, state) {
-    await api.request('/rooms/' + roomId + '/sync', { method: 'PUT', body: JSON.stringify(state) });
+  updateSync: function(roomId, state) {
+    return api.request('/rooms/' + roomId + '/sync', { method: 'PUT', body: JSON.stringify(state) });
   }
 };
 
 api.playlists = {
-  async list(roomId) { return (await api.request('/playlists?roomId=' + roomId)).playlists || []; },
-  async create(roomId, name) { return (await api.request('/playlists', { method: 'POST', body: JSON.stringify({ roomId, name }) })).playlist; },
-  async delete(playlistId) { await api.request('/playlists/' + playlistId, { method: 'DELETE' }); },
-  async addVideo(playlistId, video) { return (await api.request('/playlists/' + playlistId + '/videos', { method: 'POST', body: JSON.stringify(video) })).video; },
-  async removeVideo(playlistId, videoId) { await api.request('/playlists/' + playlistId + '/videos/' + videoId, { method: 'DELETE' }); },
-  async reorderVideos(playlistId, videoIds) { await api.request('/playlists/' + playlistId + '/reorder', { method: 'PUT', body: JSON.stringify({ videoIds }) }); }
+  list: function(roomId) { return api.request('/playlists?roomId=' + roomId).then(function(d) { return d.playlists || []; }); },
+  create: function(roomId, name) { return api.request('/playlists', { method: 'POST', body: JSON.stringify({ roomId: roomId, name: name }) }).then(function(d) { return d.playlist; }); },
+  update: function(playlistId, updates) { return api.request('/playlists/' + playlistId, { method: 'PUT', body: JSON.stringify(updates) }).then(function(d) { return d.playlist; }); },
+  delete: function(playlistId) { return api.request('/playlists/' + playlistId, { method: 'DELETE' }); },
+  addVideo: function(playlistId, video) { return api.request('/playlists/' + playlistId + '/videos', { method: 'POST', body: JSON.stringify(video) }).then(function(d) { return d.video; }); },
+  removeVideo: function(playlistId, videoId) { return api.request('/playlists/' + playlistId + '/videos/' + videoId, { method: 'DELETE' }); },
+  reorderVideos: function(playlistId, videoIds) { return api.request('/playlists/' + playlistId + '/reorder', { method: 'PUT', body: JSON.stringify({ videoIds: videoIds }) }); }
 };
 
 api.presence = {
-  async heartbeat(roomId, status) {
-    const guestId = api.getToken() ? null : api.getGuestId();
-    await api.request('/presence/heartbeat', { method: 'POST', body: JSON.stringify({ roomId, guestId, status: status || 'online' }) });
+  heartbeat: function(roomId, status) {
+    var guestId = api.getToken() ? null : api.getGuestId();
+    return api.request('/presence/heartbeat', { method: 'POST', body: JSON.stringify({ roomId: roomId, guestId: guestId, status: status || 'online' }) });
   },
-  async getMembers(roomId) { return (await api.request('/presence/' + roomId)).members || []; },
-  async leave(roomId) {
-    const guestId = api.getToken() ? null : api.getGuestId();
-    await api.request('/presence/leave', { method: 'POST', body: JSON.stringify({ roomId, guestId }) });
+  getMembers: function(roomId) { return api.request('/presence/' + roomId).then(function(d) { return d.members || []; }); },
+  leave: function(roomId) {
+    var guestId = api.getToken() ? null : api.getGuestId();
+    return api.request('/presence/leave', { method: 'POST', body: JSON.stringify({ roomId: roomId, guestId: guestId }) });
   },
-  async updateMember(roomId, visitorId, guestId, updates) {
-    await api.request('/presence/member', { method: 'PUT', body: JSON.stringify({ roomId, visitorId, guestId, ...updates }) });
+  updateMember: function(roomId, visitorId, guestId, updates) {
+    return api.request('/presence/member', { method: 'PUT', body: JSON.stringify(Object.assign({ roomId: roomId, visitorId: visitorId, guestId: guestId }, updates)) });
   }
 };
 
@@ -154,7 +159,8 @@ function parseVideoUrl(url) {
 }
 
 function getVideoTypeIcon(type) {
-  return { youtube: '▶️', spotify: '🎵', vimeo: '🎬', soundcloud: '🔊', direct: '📹' }[type] || '📹';
+  var icons = { youtube: '▶️', spotify: '🎵', vimeo: '🎬', soundcloud: '🔊', direct: '📹' };
+  return icons[type] || '📹';
 }
 
 function parseRoomUrl() {
@@ -166,7 +172,9 @@ function parseRoomUrl() {
 // ============================================
 // Icon Component
 // ============================================
-function Icon({ name, size }) {
+function Icon(props) {
+  var name = props.name;
+  var size = props.size;
   var s = { sm: 14, md: 18, lg: 24 }[size || 'md'] || 18;
   var paths = {
     play: React.createElement('polygon', { points: '5,3 19,12 5,21' }),
@@ -185,7 +193,8 @@ function Icon({ name, size }) {
     users: React.createElement(React.Fragment, null, React.createElement('path', { d: 'M17,21v-2a4,4,0,0,0-4-4H5a4,4,0,0,0-4,4v2' }), React.createElement('circle', { cx: '9', cy: '7', r: '4' }), React.createElement('path', { d: 'M23,21v-2a4,4,0,0,0-3-3.87' }), React.createElement('path', { d: 'M16,3.13a4,4,0,0,1,0,7.75' })),
     home: React.createElement(React.Fragment, null, React.createElement('path', { d: 'M3,9l9-7,9,7v11a2,2,0,0,1-2,2H5a2,2,0,0,1-2-2Z' }), React.createElement('polyline', { points: '9,22 9,12 15,12 15,22' })),
     enter: React.createElement(React.Fragment, null, React.createElement('path', { d: 'M15,3h4a2,2,0,0,1,2,2v14a2,2,0,0,1-2,2h-4' }), React.createElement('polyline', { points: '10,17 15,12 10,7' }), React.createElement('line', { x1: '15', y1: '12', x2: '3', y2: '12' })),
-    chevronDown: React.createElement('polyline', { points: '6,9 12,15 18,9' })
+    chevronDown: React.createElement('polyline', { points: '6,9 12,15 18,9' }),
+    grip: React.createElement(React.Fragment, null, React.createElement('circle', { cx: '9', cy: '5', r: '1.5' }), React.createElement('circle', { cx: '9', cy: '12', r: '1.5' }), React.createElement('circle', { cx: '9', cy: '19', r: '1.5' }), React.createElement('circle', { cx: '15', cy: '5', r: '1.5' }), React.createElement('circle', { cx: '15', cy: '12', r: '1.5' }), React.createElement('circle', { cx: '15', cy: '19', r: '1.5' }))
   };
   return React.createElement('svg', { width: s, height: s, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round' }, paths[name] || null);
 }
@@ -202,9 +211,16 @@ function DragonFire() {
 }
 
 // ============================================
-// Video Player
+// Video Player with Sync Support
 // ============================================
-function VideoPlayer({ video, onEnded }) {
+function VideoPlayer(props) {
+  var video = props.video;
+  var onEnded = props.onEnded;
+  var playbackState = props.playbackState;
+  var onPlaybackChange = props.onPlaybackChange;
+  var isOwner = props.isOwner;
+  var videoRef = useRef(null);
+
   if (!video) {
     return React.createElement('div', { className: 'video-placeholder' },
       React.createElement('div', { className: 'dragon-logo' }, '🐉'),
@@ -212,11 +228,23 @@ function VideoPlayer({ video, onEnded }) {
       React.createElement('p', null, 'Select a video to play')
     );
   }
+
   var parsed = parseVideoUrl(video.url);
   if (!parsed) return React.createElement('div', { className: 'video-error' }, 'Invalid video URL');
 
+  // For YouTube - use iframe with enablejsapi for control
   if (parsed.type === 'youtube') {
-    return React.createElement('iframe', { src: 'https://www.youtube.com/embed/' + parsed.id + '?autoplay=1&rel=0', allow: 'autoplay; encrypted-media', allowFullScreen: true, className: 'video-frame' });
+    var ytParams = 'autoplay=1&rel=0&enablejsapi=1';
+    if (playbackState && playbackState.currentTime) {
+      ytParams += '&start=' + Math.floor(playbackState.currentTime);
+    }
+    return React.createElement('iframe', { 
+      id: 'video-player',
+      src: 'https://www.youtube.com/embed/' + parsed.id + '?' + ytParams, 
+      allow: 'autoplay; encrypted-media', 
+      allowFullScreen: true, 
+      className: 'video-frame' 
+    });
   }
   if (parsed.type === 'vimeo') {
     return React.createElement('iframe', { src: 'https://player.vimeo.com/video/' + parsed.id + '?autoplay=1', allow: 'autoplay; fullscreen', allowFullScreen: true, className: 'video-frame' });
@@ -232,24 +260,39 @@ function VideoPlayer({ video, onEnded }) {
       return React.createElement('div', { className: 'video-placeholder' },
         React.createElement('div', { style: { fontSize: '48px' } }, '🎵'),
         React.createElement('p', null, video.title),
-        React.createElement('audio', { src: video.url, controls: true, autoPlay: true, onEnded: onEnded, style: { width: '80%', maxWidth: '400px' } })
+        React.createElement('audio', { ref: videoRef, src: video.url, controls: true, autoPlay: true, onEnded: onEnded, style: { width: '80%', maxWidth: '400px' } })
       );
     }
-    return React.createElement('video', { src: video.url, controls: true, autoPlay: true, onEnded: onEnded, className: 'video-frame' });
+    return React.createElement('video', { ref: videoRef, src: video.url, controls: true, autoPlay: true, onEnded: onEnded, className: 'video-frame' });
   }
   return React.createElement('div', { className: 'video-error' }, 'Unsupported format');
 }
 
 // ============================================
-// Connected Users
+// Connected Users with Context Menu Fix
 // ============================================
-function ConnectedUsers({ users, isHost, currentUserId, roomId, onKick, onRename, onColorChange }) {
-  var [contextMenu, setContextMenu] = useState(null);
+function ConnectedUsers(props) {
+  var users = props.users;
+  var isHost = props.isHost;
+  var currentUserId = props.currentUserId;
+  var roomId = props.roomId;
+  var onKick = props.onKick;
+  var onRename = props.onRename;
+  var onColorChange = props.onColorChange;
+  
+  var _contextMenu = useState(null);
+  var contextMenu = _contextMenu[0];
+  var setContextMenu = _contextMenu[1];
 
   function handleRightClick(e, user) {
     e.preventDefault();
-    if (!isHost && user.visitorId !== currentUserId) return;
-    setContextMenu({ x: e.clientX, y: e.clientY, user: user });
+    // Calculate position to keep menu in viewport
+    var x = e.clientX;
+    var y = e.clientY;
+    // Adjust if too close to edges
+    if (x + 180 > window.innerWidth) x = window.innerWidth - 180;
+    if (y + 150 > window.innerHeight) y = window.innerHeight - 150;
+    setContextMenu({ x: x, y: y, user: user });
   }
 
   useEffect(function() {
@@ -258,53 +301,81 @@ function ConnectedUsers({ users, isHost, currentUserId, roomId, onKick, onRename
     return function() { document.removeEventListener('click', close); };
   }, []);
 
-  var onlineCount = users.filter(function(u) { return u.status === 'online'; }).length;
+  var onlineUsers = users.filter(function(u) { return u.status === 'online'; });
+  var offlineUsers = users.filter(function(u) { return u.status !== 'online'; });
   
-  // Sort users: owner first, then by name
-  var sortedUsers = users.slice().sort(function(a, b) {
-    if (a.isOwner && !b.isOwner) return -1;
-    if (!a.isOwner && b.isOwner) return 1;
-    return (a.displayName || '').localeCompare(b.displayName || '');
-  });
+  // Sort: owner first, then alphabetically
+  function sortUsers(list) {
+    return list.slice().sort(function(a, b) {
+      if (a.isOwner && !b.isOwner) return -1;
+      if (!a.isOwner && b.isOwner) return 1;
+      return (a.displayName || '').localeCompare(b.displayName || '');
+    });
+  }
+  
+  var sortedOnline = sortUsers(onlineUsers);
+  var sortedOffline = sortUsers(offlineUsers);
+
+  function renderUser(user) {
+    var isYou = user.visitorId === currentUserId;
+    var isGuest = user.guestId || (user.visitorId && user.visitorId.startsWith && user.visitorId.startsWith('guest_'));
+    var statusClass = user.status || 'offline';
+    var badgeStyle = user.color ? { background: user.color } : {};
+    
+    return React.createElement('div', {
+      key: user.visitorId || user.guestId,
+      className: 'user-badge ' + statusClass + (isYou ? ' is-you' : '') + (user.isOwner ? ' is-owner' : ''),
+      style: badgeStyle,
+      onContextMenu: function(e) { handleRightClick(e, user); }
+    },
+      user.isOwner && React.createElement('span', { className: 'owner-crown' }, '👑'),
+      React.createElement('span', { className: 'status-indicator ' + statusClass }),
+      React.createElement('span', { className: 'badge-name' }, user.displayName || 'Guest'),
+      isYou && React.createElement('span', { className: 'you-tag' }, '(you)'),
+      isGuest && !isYou && React.createElement('span', { className: 'guest-tag-badge' }, '(guest)')
+    );
+  }
 
   return React.createElement('div', { className: 'connected-users-section' },
     React.createElement('div', { className: 'connected-header' },
       React.createElement('h4', null, React.createElement(Icon, { name: 'users', size: 'sm' }), ' Connected'),
-      React.createElement('span', { className: 'online-count' }, React.createElement('span', { className: 'count' }, onlineCount), ' online')
+      React.createElement('span', { className: 'online-count' }, React.createElement('span', { className: 'count' }, sortedOnline.length), ' online')
     ),
     React.createElement('div', { className: 'users-list' },
-      sortedUsers.length === 0 ? React.createElement('div', { className: 'no-users' }, 'No one here yet') :
-      sortedUsers.map(function(user) {
-        var isYou = user.visitorId === currentUserId;
-        var statusClass = user.status || 'offline';
-        var badgeStyle = user.color ? { background: user.color } : {};
-        
-        return React.createElement('div', {
-          key: user.visitorId,
-          className: 'user-badge ' + statusClass + (isYou ? ' is-you' : '') + (user.isOwner ? ' is-owner' : ''),
-          style: badgeStyle,
-          onContextMenu: function(e) { handleRightClick(e, user); }
-        },
-          user.isOwner && React.createElement('span', { className: 'owner-crown' }, '👑'),
-          React.createElement('span', { className: 'status-indicator ' + statusClass }),
-          React.createElement('span', { className: 'badge-name' }, user.displayName),
-          isYou && React.createElement('span', { className: 'you-tag' }, '(you)')
-        );
-      })
+      sortedOnline.length === 0 && sortedOffline.length === 0 
+        ? React.createElement('div', { className: 'no-users' }, 'No one here yet')
+        : React.createElement(React.Fragment, null,
+            sortedOnline.map(renderUser),
+            sortedOffline.length > 0 && React.createElement('div', { className: 'offline-divider' }, 'Offline'),
+            sortedOffline.map(renderUser)
+          )
     ),
-    contextMenu && React.createElement('div', { className: 'context-menu', style: { top: contextMenu.y, left: contextMenu.x } },
+    contextMenu && React.createElement('div', { 
+      className: 'context-menu', 
+      style: { position: 'fixed', top: contextMenu.y, left: contextMenu.x, zIndex: 10000 },
+      onClick: function(e) { e.stopPropagation(); }
+    },
       React.createElement('button', { className: 'context-menu-item', onClick: function() { 
-        var name = prompt('New name:', contextMenu.user.displayName);
-        if (name) onRename(contextMenu.user.visitorId, contextMenu.user.visitorId.startsWith('guest_') ? contextMenu.user.visitorId : null, name);
+        var name = prompt('New display name:', contextMenu.user.displayName);
+        if (name && name.trim()) {
+          var isGuest = contextMenu.user.guestId || (contextMenu.user.visitorId && contextMenu.user.visitorId.startsWith('guest_'));
+          onRename(isGuest ? null : contextMenu.user.visitorId, isGuest ? (contextMenu.user.guestId || contextMenu.user.visitorId) : null, name.trim());
+        }
         setContextMenu(null);
       } }, React.createElement(Icon, { name: 'edit', size: 'sm' }), ' Rename'),
       React.createElement('button', { className: 'context-menu-item', onClick: function() {
-        var color = prompt('Color (hex):', contextMenu.user.color || '#333');
-        if (color) onColorChange(contextMenu.user.visitorId, contextMenu.user.visitorId.startsWith('guest_') ? contextMenu.user.visitorId : null, color);
+        var colors = ['#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#1abc9c', '#3498db', '#9b59b6', '#e91e63', '#607d8b'];
+        var colorIdx = colors.indexOf(contextMenu.user.color);
+        var newColor = colors[(colorIdx + 1) % colors.length];
+        var isGuest = contextMenu.user.guestId || (contextMenu.user.visitorId && contextMenu.user.visitorId.startsWith('guest_'));
+        onColorChange(isGuest ? null : contextMenu.user.visitorId, isGuest ? (contextMenu.user.guestId || contextMenu.user.visitorId) : null, newColor);
         setContextMenu(null);
       } }, '🎨 Change Color'),
       isHost && contextMenu.user.visitorId !== currentUserId && React.createElement('button', { className: 'context-menu-item danger', onClick: function() {
-        if (confirm('Kick ' + contextMenu.user.displayName + '?')) onKick(contextMenu.user.visitorId, contextMenu.user.visitorId.startsWith('guest_') ? contextMenu.user.visitorId : null);
+        if (confirm('Kick ' + contextMenu.user.displayName + '?')) {
+          var isGuest = contextMenu.user.guestId || (contextMenu.user.visitorId && contextMenu.user.visitorId.startsWith('guest_'));
+          onKick(isGuest ? null : contextMenu.user.visitorId, isGuest ? (contextMenu.user.guestId || contextMenu.user.visitorId) : null);
+        }
         setContextMenu(null);
       } }, React.createElement(Icon, { name: 'x', size: 'sm' }), ' Kick')
     )
@@ -312,10 +383,211 @@ function ConnectedUsers({ users, isHost, currentUserId, roomId, onKick, onRename
 }
 
 // ============================================
+// Draggable Video List
+// ============================================
+function DraggableVideoList(props) {
+  var videos = props.videos || [];
+  var currentVideo = props.currentVideo;
+  var onPlay = props.onPlay;
+  var onRemove = props.onRemove;
+  var onReorder = props.onReorder;
+  
+  var _dragItem = useState(null);
+  var dragItem = _dragItem[0];
+  var setDragItem = _dragItem[1];
+  
+  var _dragOver = useState(null);
+  var dragOver = _dragOver[0];
+  var setDragOver = _dragOver[1];
+
+  function handleDragStart(e, index) {
+    setDragItem(index);
+    e.dataTransfer.effectAllowed = 'move';
+  }
+
+  function handleDragOver(e, index) {
+    e.preventDefault();
+    if (dragItem === null) return;
+    setDragOver(index);
+  }
+
+  function handleDrop(e, index) {
+    e.preventDefault();
+    if (dragItem === null || dragItem === index) {
+      setDragItem(null);
+      setDragOver(null);
+      return;
+    }
+    
+    var newVideos = videos.slice();
+    var item = newVideos.splice(dragItem, 1)[0];
+    newVideos.splice(index, 0, item);
+    
+    onReorder(newVideos.map(function(v) { return v.id; }));
+    setDragItem(null);
+    setDragOver(null);
+  }
+
+  function handleDragEnd() {
+    setDragItem(null);
+    setDragOver(null);
+  }
+
+  if (videos.length === 0) {
+    return React.createElement('div', { className: 'empty-queue' }, React.createElement('p', null, 'No videos in playlist'));
+  }
+
+  return React.createElement('div', { className: 'video-list' },
+    videos.map(function(v, i) {
+      var isPlaying = currentVideo && currentVideo.id === v.id;
+      var isDragging = dragItem === i;
+      var isDragOver = dragOver === i;
+      var parsed = parseVideoUrl(v.url);
+      
+      return React.createElement('div', { 
+        key: v.id, 
+        className: 'video-item' + (isPlaying ? ' playing' : '') + (isDragging ? ' dragging' : '') + (isDragOver ? ' drag-over' : ''),
+        draggable: true,
+        onDragStart: function(e) { handleDragStart(e, i); },
+        onDragOver: function(e) { handleDragOver(e, i); },
+        onDrop: function(e) { handleDrop(e, i); },
+        onDragEnd: handleDragEnd
+      },
+        React.createElement('div', { className: 'video-drag-handle' },
+          React.createElement(Icon, { name: 'grip', size: 'sm' })
+        ),
+        React.createElement('button', { className: 'video-play-btn', onClick: function() { onPlay(v, i); }, title: 'Play' },
+          React.createElement(Icon, { name: 'play', size: 'sm' })
+        ),
+        React.createElement('div', { className: 'video-info', onClick: function() { onPlay(v, i); } },
+          React.createElement('span', { className: 'video-type-icon' }, getVideoTypeIcon(parsed ? parsed.type : null)),
+          React.createElement('span', { className: 'video-title' }, v.title || v.url)
+        ),
+        React.createElement('button', { className: 'video-remove-btn', onClick: function() { onRemove(v.id); }, title: 'Remove' },
+          React.createElement(Icon, { name: 'trash', size: 'sm' })
+        )
+      );
+    })
+  );
+}
+
+// ============================================
+// Playlist Panel with Rename
+// ============================================
+function PlaylistPanel(props) {
+  var playlists = props.playlists;
+  var activePlaylist = props.activePlaylist;
+  var onSelect = props.onSelect;
+  var onCreate = props.onCreate;
+  var onDelete = props.onDelete;
+  var onRename = props.onRename;
+  
+  var _showCreate = useState(false);
+  var showCreate = _showCreate[0];
+  var setShowCreate = _showCreate[1];
+  
+  var _newName = useState('');
+  var newName = _newName[0];
+  var setNewName = _newName[1];
+  
+  var _editingId = useState(null);
+  var editingId = _editingId[0];
+  var setEditingId = _editingId[1];
+  
+  var _editName = useState('');
+  var editName = _editName[0];
+  var setEditName = _editName[1];
+
+  function handleCreate() {
+    if (!newName.trim()) return;
+    onCreate(newName.trim());
+    setNewName('');
+    setShowCreate(false);
+  }
+
+  function handleRename(id) {
+    if (!editName.trim()) return;
+    onRename(id, editName.trim());
+    setEditingId(null);
+    setEditName('');
+  }
+
+  function startEdit(playlist) {
+    setEditingId(playlist.id);
+    setEditName(playlist.name);
+  }
+
+  return React.createElement('div', { className: 'playlist-panel' },
+    React.createElement('div', { className: 'sidebar-header' },
+      React.createElement('h3', null, 'Playlists'),
+      React.createElement('button', { className: 'icon-btn sm', onClick: function() { setShowCreate(true); } }, 
+        React.createElement(Icon, { name: 'plus', size: 'sm' })
+      )
+    ),
+    showCreate && React.createElement('div', { className: 'create-playlist-form' },
+      React.createElement('input', { 
+        value: newName, 
+        onChange: function(e) { setNewName(e.target.value); }, 
+        placeholder: 'Playlist name', 
+        autoFocus: true,
+        onKeyDown: function(e) { if (e.key === 'Enter') handleCreate(); if (e.key === 'Escape') setShowCreate(false); }
+      }),
+      React.createElement('div', { className: 'form-actions' },
+        React.createElement('button', { className: 'btn primary sm', onClick: handleCreate }, 'Create'),
+        React.createElement('button', { className: 'btn sm', onClick: function() { setShowCreate(false); } }, 'Cancel')
+      )
+    ),
+    React.createElement('div', { className: 'playlists-list' },
+      playlists.length === 0 
+        ? React.createElement('div', { className: 'empty-playlists' }, 'No playlists yet')
+        : playlists.map(function(p) {
+            var isActive = activePlaylist && activePlaylist.id === p.id;
+            var isEditing = editingId === p.id;
+            
+            return React.createElement('div', { key: p.id, className: 'playlist-item' + (isActive ? ' active' : '') },
+              isEditing 
+                ? React.createElement('input', {
+                    className: 'playlist-edit-input',
+                    value: editName,
+                    onChange: function(e) { setEditName(e.target.value); },
+                    onBlur: function() { handleRename(p.id); },
+                    onKeyDown: function(e) { 
+                      if (e.key === 'Enter') handleRename(p.id); 
+                      if (e.key === 'Escape') { setEditingId(null); setEditName(''); }
+                    },
+                    autoFocus: true
+                  })
+                : React.createElement('button', { className: 'playlist-select', onClick: function() { onSelect(p); } },
+                    React.createElement('span', { className: 'playlist-name' }, p.name),
+                    React.createElement('span', { className: 'playlist-count' }, (p.videos || []).length)
+                  ),
+              React.createElement('div', { className: 'playlist-actions' },
+                React.createElement('button', { className: 'icon-btn sm', onClick: function() { startEdit(p); }, title: 'Rename' },
+                  React.createElement(Icon, { name: 'edit', size: 'sm' })
+                ),
+                React.createElement('button', { className: 'icon-btn sm danger', onClick: function() { onDelete(p.id); }, title: 'Delete' },
+                  React.createElement(Icon, { name: 'trash', size: 'sm' })
+                )
+              )
+            );
+          })
+    )
+  );
+}
+
+// ============================================
 // User Menu Dropdown
 // ============================================
-function UserMenu({ user, onSettings, onLogout, onHome }) {
-  var [open, setOpen] = useState(false);
+function UserMenu(props) {
+  var user = props.user;
+  var onSettings = props.onSettings;
+  var onLogout = props.onLogout;
+  var onHome = props.onHome;
+  
+  var _open = useState(false);
+  var open = _open[0];
+  var setOpen = _open[1];
+  
   var ref = useRef(null);
 
   useEffect(function() {
@@ -352,16 +624,29 @@ function UserMenu({ user, onSettings, onLogout, onHome }) {
 }
 
 // ============================================
-// Settings Modal (Full)
+// Settings Modal
 // ============================================
-function SettingsModal({ user, onClose, onUpdate, onLogout }) {
-  var [tab, setTab] = useState('profile');
-  var [displayName, setDisplayName] = useState(user.displayName || '');
-  var [currentPassword, setCurrentPassword] = useState('');
-  var [newPassword, setNewPassword] = useState('');
-  var [confirmPassword, setConfirmPassword] = useState('');
-  var [message, setMessage] = useState(null);
-  var [loading, setLoading] = useState(false);
+function SettingsModal(props) {
+  var user = props.user;
+  var onClose = props.onClose;
+  var onUpdate = props.onUpdate;
+  var onLogout = props.onLogout;
+  
+  var _tab = useState('profile');
+  var tab = _tab[0];
+  var setTab = _tab[1];
+  
+  var _displayName = useState(user.displayName || '');
+  var displayName = _displayName[0];
+  var setDisplayName = _displayName[1];
+  
+  var _message = useState(null);
+  var message = _message[0];
+  var setMessage = _message[1];
+  
+  var _loading = useState(false);
+  var loading = _loading[0];
+  var setLoading = _loading[1];
 
   function showMsg(text, type) {
     setMessage({ text: text, type: type || 'success' });
@@ -370,27 +655,8 @@ function SettingsModal({ user, onClose, onUpdate, onLogout }) {
 
   function handleSaveProfile() {
     if (!displayName.trim()) return;
-    setLoading(true);
-    // For now just update locally since we don't have profile endpoint
-    onUpdate({ ...user, displayName: displayName.trim() });
+    onUpdate(Object.assign({}, user, { displayName: displayName.trim() }));
     showMsg('Profile updated!');
-    setLoading(false);
-  }
-
-  function handleChangePassword() {
-    if (!currentPassword || !newPassword) {
-      showMsg('Please fill all fields', 'error');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      showMsg('Passwords do not match', 'error');
-      return;
-    }
-    if (newPassword.length < 6) {
-      showMsg('Password must be at least 6 characters', 'error');
-      return;
-    }
-    showMsg('Password change not implemented yet', 'error');
   }
 
   function handleDeleteAccount() {
@@ -398,23 +664,17 @@ function SettingsModal({ user, onClose, onUpdate, onLogout }) {
     if (!confirm('Really delete? All your rooms and data will be lost forever.')) return;
     setLoading(true);
     api.auth.deleteAccount()
-      .then(function() {
-        onLogout();
-      })
-      .catch(function(err) {
-        showMsg('Failed to delete account: ' + err.message, 'error');
-        setLoading(false);
-      });
+      .then(function() { onLogout(); })
+      .catch(function(err) { showMsg('Failed: ' + err.message, 'error'); setLoading(false); });
   }
 
   return React.createElement('div', { className: 'modal-overlay', onClick: onClose },
-    React.createElement('div', { className: 'modal settings-modal', onClick: function(e) { e.stopPropagation(); }, style: { maxWidth: '480px' } },
+    React.createElement('div', { className: 'modal settings-modal', onClick: function(e) { e.stopPropagation(); } },
       React.createElement('button', { className: 'modal-close', onClick: onClose }, '×'),
       React.createElement('h2', null, 'Settings'),
       
       React.createElement('div', { className: 'settings-tabs' },
         React.createElement('button', { className: 'settings-tab' + (tab === 'profile' ? ' active' : ''), onClick: function() { setTab('profile'); } }, 'Profile'),
-        React.createElement('button', { className: 'settings-tab' + (tab === 'security' ? ' active' : ''), onClick: function() { setTab('security'); } }, 'Security'),
         React.createElement('button', { className: 'settings-tab' + (tab === 'danger' ? ' active' : ''), onClick: function() { setTab('danger'); } }, 'Account')
       ),
       
@@ -429,31 +689,14 @@ function SettingsModal({ user, onClose, onUpdate, onLogout }) {
           React.createElement('label', null, 'Email'),
           React.createElement('input', { type: 'email', value: user.email, disabled: true })
         ),
-        React.createElement('button', { className: 'btn primary', onClick: handleSaveProfile, disabled: loading }, loading ? 'Saving...' : 'Save Changes')
-      ),
-      
-      tab === 'security' && React.createElement('div', { className: 'settings-content' },
-        React.createElement('h3', { style: { marginBottom: '16px', color: 'var(--gold)' } }, 'Change Password'),
-        React.createElement('div', { className: 'modal-input-group' },
-          React.createElement('label', null, 'Current Password'),
-          React.createElement('input', { type: 'password', value: currentPassword, onChange: function(e) { setCurrentPassword(e.target.value); } })
-        ),
-        React.createElement('div', { className: 'modal-input-group' },
-          React.createElement('label', null, 'New Password'),
-          React.createElement('input', { type: 'password', value: newPassword, onChange: function(e) { setNewPassword(e.target.value); } })
-        ),
-        React.createElement('div', { className: 'modal-input-group' },
-          React.createElement('label', null, 'Confirm New Password'),
-          React.createElement('input', { type: 'password', value: confirmPassword, onChange: function(e) { setConfirmPassword(e.target.value); } })
-        ),
-        React.createElement('button', { className: 'btn primary', onClick: handleChangePassword }, 'Change Password')
+        React.createElement('button', { className: 'btn primary', onClick: handleSaveProfile, disabled: loading }, 'Save Changes')
       ),
       
       tab === 'danger' && React.createElement('div', { className: 'settings-content' },
         React.createElement('div', { className: 'danger-zone' },
           React.createElement('h3', null, '⚠️ Danger Zone'),
-          React.createElement('p', null, 'Deleting your account will permanently remove all your rooms, playlists, and data. This action cannot be undone.'),
-          React.createElement('button', { className: 'btn danger', onClick: handleDeleteAccount }, 'Delete My Account')
+          React.createElement('p', null, 'Deleting your account will permanently remove all your rooms, playlists, and data.'),
+          React.createElement('button', { className: 'btn danger', onClick: handleDeleteAccount, disabled: loading }, loading ? 'Deleting...' : 'Delete My Account')
         )
       )
     )
@@ -461,16 +704,77 @@ function SettingsModal({ user, onClose, onUpdate, onLogout }) {
 }
 
 // ============================================
+// Guest Join Modal
+// ============================================
+function GuestJoinModal(props) {
+  var onJoin = props.onJoin;
+  var onLogin = props.onLogin;
+  
+  var _name = useState('');
+  var name = _name[0];
+  var setName = _name[1];
+
+  function handleJoin() {
+    var displayName = name.trim() || 'Guest';
+    onJoin(displayName);
+  }
+
+  return React.createElement('div', { className: 'modal-overlay' },
+    React.createElement('div', { className: 'modal guest-modal' },
+      React.createElement('div', { className: 'guest-modal-icon' }, '🐉'),
+      React.createElement('h2', null, 'Join Room'),
+      React.createElement('p', null, 'Enter a display name to join as a guest'),
+      React.createElement('div', { className: 'modal-input-group' },
+        React.createElement('input', { 
+          type: 'text', 
+          value: name, 
+          onChange: function(e) { setName(e.target.value); },
+          placeholder: 'Your name',
+          autoFocus: true,
+          onKeyDown: function(e) { if (e.key === 'Enter') handleJoin(); }
+        })
+      ),
+      React.createElement('button', { className: 'btn primary', onClick: handleJoin }, 'Join as Guest'),
+      React.createElement('div', { className: 'guest-modal-divider' }, React.createElement('span', null, 'or')),
+      React.createElement('button', { className: 'btn secondary', onClick: onLogin }, 'Sign in / Create Account')
+    )
+  );
+}
+
+// ============================================
 // Auth Screen
 // ============================================
-function AuthScreen({ onAuth }) {
-  var [mode, setMode] = useState('login');
-  var [email, setEmail] = useState('');
-  var [username, setUsername] = useState('');
-  var [password, setPassword] = useState('');
-  var [displayName, setDisplayName] = useState('');
-  var [error, setError] = useState('');
-  var [loading, setLoading] = useState(false);
+function AuthScreen(props) {
+  var onAuth = props.onAuth;
+  var returnTo = props.returnTo;
+  
+  var _mode = useState('login');
+  var mode = _mode[0];
+  var setMode = _mode[1];
+  
+  var _email = useState('');
+  var email = _email[0];
+  var setEmail = _email[1];
+  
+  var _username = useState('');
+  var username = _username[0];
+  var setUsername = _username[1];
+  
+  var _password = useState('');
+  var password = _password[0];
+  var setPassword = _password[1];
+  
+  var _displayName = useState('');
+  var displayName = _displayName[0];
+  var setDisplayName = _displayName[1];
+  
+  var _error = useState('');
+  var error = _error[0];
+  var setError = _error[1];
+  
+  var _loading = useState(false);
+  var loading = _loading[0];
+  var setLoading = _loading[1];
 
   useEffect(function() {
     if (GOOGLE_CLIENT_ID && window.google) {
@@ -481,7 +785,10 @@ function AuthScreen({ onAuth }) {
   function handleGoogleResponse(response) {
     setLoading(true);
     setError('');
-    api.auth.googleLogin(response.credential).then(onAuth).catch(function(err) { setError(err.message); }).finally(function() { setLoading(false); });
+    api.auth.googleLogin(response.credential)
+      .then(onAuth)
+      .catch(function(err) { setError(err.message); })
+      .finally(function() { setLoading(false); });
   }
 
   function handleSubmit(e) {
@@ -491,7 +798,10 @@ function AuthScreen({ onAuth }) {
     var promise = mode === 'register' 
       ? api.auth.register(email, username || null, password, displayName)
       : api.auth.login(email, password);
-    promise.then(onAuth).catch(function(err) { setError(err.message); }).finally(function() { setLoading(false); });
+    promise
+      .then(onAuth)
+      .catch(function(err) { setError(err.message); })
+      .finally(function() { setLoading(false); });
   }
 
   function handleGoogleClick() {
@@ -513,33 +823,25 @@ function AuthScreen({ onAuth }) {
         React.createElement('form', { onSubmit: handleSubmit },
           mode === 'register' && React.createElement('div', { className: 'input-group' },
             React.createElement('label', null, 'Display Name'),
-            React.createElement('div', { className: 'input-wrapper' },
-              React.createElement('input', { type: 'text', value: displayName, onChange: function(e) { setDisplayName(e.target.value); }, placeholder: 'Your name', required: true })
-            )
+            React.createElement('input', { type: 'text', value: displayName, onChange: function(e) { setDisplayName(e.target.value); }, placeholder: 'Your name', required: true })
           ),
           React.createElement('div', { className: 'input-group' },
             React.createElement('label', null, mode === 'register' ? 'Email' : 'Email or Username'),
-            React.createElement('div', { className: 'input-wrapper' },
-              React.createElement('input', { type: mode === 'register' ? 'email' : 'text', value: email, onChange: function(e) { setEmail(e.target.value); }, required: true })
-            )
+            React.createElement('input', { type: mode === 'register' ? 'email' : 'text', value: email, onChange: function(e) { setEmail(e.target.value); }, required: true })
           ),
           mode === 'register' && React.createElement('div', { className: 'input-group' },
             React.createElement('label', null, 'Username (optional)'),
-            React.createElement('div', { className: 'input-wrapper' },
-              React.createElement('input', { type: 'text', value: username, onChange: function(e) { setUsername(e.target.value); } })
-            )
+            React.createElement('input', { type: 'text', value: username, onChange: function(e) { setUsername(e.target.value); } })
           ),
           React.createElement('div', { className: 'input-group' },
             React.createElement('label', null, 'Password'),
-            React.createElement('div', { className: 'input-wrapper' },
-              React.createElement('input', { type: 'password', value: password, onChange: function(e) { setPassword(e.target.value); }, required: true, minLength: 6 })
-            )
+            React.createElement('input', { type: 'password', value: password, onChange: function(e) { setPassword(e.target.value); }, required: true, minLength: 6 })
           ),
           React.createElement('button', { type: 'submit', className: 'auth-submit', disabled: loading }, loading ? 'Please wait...' : (mode === 'login' ? 'Sign in' : 'Create account'))
         ),
         React.createElement('div', { className: 'auth-divider' }, React.createElement('span', null, 'or')),
         React.createElement('button', { type: 'button', className: 'google-btn', onClick: handleGoogleClick },
-          React.createElement('svg', { viewBox: '0 0 24 24', style: { width: 18, height: 18 } },
+          React.createElement('svg', { viewBox: '0 0 24 24', width: 18, height: 18 },
             React.createElement('path', { fill: '#4285F4', d: 'M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z' }),
             React.createElement('path', { fill: '#34A853', d: 'M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z' }),
             React.createElement('path', { fill: '#FBBC05', d: 'M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z' }),
@@ -548,13 +850,15 @@ function AuthScreen({ onAuth }) {
           'Continue with Google'
         ),
         React.createElement('div', { className: 'auth-links' },
-          mode === 'login' ? React.createElement(React.Fragment, null,
-            React.createElement('span', null, 'New here? '),
-            React.createElement('button', { type: 'button', onClick: function() { setMode('register'); setError(''); } }, 'Create account')
-          ) : React.createElement(React.Fragment, null,
-            React.createElement('span', null, 'Have an account? '),
-            React.createElement('button', { type: 'button', onClick: function() { setMode('login'); setError(''); } }, 'Sign in')
-          )
+          mode === 'login' 
+            ? React.createElement(React.Fragment, null,
+                React.createElement('span', null, 'New here? '),
+                React.createElement('button', { type: 'button', onClick: function() { setMode('register'); setError(''); } }, 'Create account')
+              )
+            : React.createElement(React.Fragment, null,
+                React.createElement('span', null, 'Have an account? '),
+                React.createElement('button', { type: 'button', onClick: function() { setMode('login'); setError(''); } }, 'Sign in')
+              )
         )
       )
     )
@@ -564,16 +868,47 @@ function AuthScreen({ onAuth }) {
 // ============================================
 // Home Page
 // ============================================
-function HomePage({ user, onEnterRoom, onLogout, onUpdateUser }) {
-  var [rooms, setRooms] = useState([]);
-  var [showCreate, setShowCreate] = useState(false);
-  var [newRoomName, setNewRoomName] = useState('');
-  var [editingRoom, setEditingRoom] = useState(null);
-  var [editName, setEditName] = useState('');
-  var [settingsOpen, setSettingsOpen] = useState(false);
-  var [notification, setNotification] = useState(null);
-  var [loading, setLoading] = useState(true);
-  var [error, setError] = useState(null);
+function HomePage(props) {
+  var user = props.user;
+  var onEnterRoom = props.onEnterRoom;
+  var onLogout = props.onLogout;
+  var onUpdateUser = props.onUpdateUser;
+  
+  var _rooms = useState([]);
+  var rooms = _rooms[0];
+  var setRooms = _rooms[1];
+  
+  var _showCreate = useState(false);
+  var showCreate = _showCreate[0];
+  var setShowCreate = _showCreate[1];
+  
+  var _newRoomName = useState('');
+  var newRoomName = _newRoomName[0];
+  var setNewRoomName = _newRoomName[1];
+  
+  var _editingRoom = useState(null);
+  var editingRoom = _editingRoom[0];
+  var setEditingRoom = _editingRoom[1];
+  
+  var _editName = useState('');
+  var editName = _editName[0];
+  var setEditName = _editName[1];
+  
+  var _settingsOpen = useState(false);
+  var settingsOpen = _settingsOpen[0];
+  var setSettingsOpen = _settingsOpen[1];
+  
+  var _notification = useState(null);
+  var notification = _notification[0];
+  var setNotification = _notification[1];
+  
+  var _loading = useState(true);
+  var loading = _loading[0];
+  var setLoading = _loading[1];
+  
+  var _error = useState(null);
+  var error = _error[0];
+  var setError = _error[1];
 
   useEffect(function() { loadRooms(); }, []);
 
@@ -582,7 +917,9 @@ function HomePage({ user, onEnterRoom, onLogout, onUpdateUser }) {
     setError(null);
     api.rooms.list()
       .then(function(r) {
-        if (!r || r.length === 0) return api.rooms.create('My Room').then(function(room) { return [room]; });
+        if (!r || r.length === 0) {
+          return api.rooms.create('My Room').then(function(room) { return [room]; });
+        }
         return r;
       })
       .then(setRooms)
@@ -608,7 +945,7 @@ function HomePage({ user, onEnterRoom, onLogout, onUpdateUser }) {
   function renameRoom(roomId) {
     if (!editName.trim()) return;
     api.rooms.update(roomId, { name: editName.trim() }).then(function() {
-      setRooms(rooms.map(function(r) { return r.id === roomId ? { ...r, name: editName.trim() } : r; }));
+      setRooms(rooms.map(function(r) { return r.id === roomId ? Object.assign({}, r, { name: editName.trim() }) : r; }));
       setEditingRoom(null);
       showNotif('Renamed!');
     }).catch(function(err) { showNotif('Failed: ' + err.message, 'error'); });
@@ -659,44 +996,35 @@ function HomePage({ user, onEnterRoom, onLogout, onUpdateUser }) {
     ),
     React.createElement('main', { className: 'home-content' },
       React.createElement('div', { className: 'home-welcome' },
-        React.createElement('div', { className: 'welcome-glow' }),
         React.createElement('h1', null, 'Welcome, ' + user.displayName),
         React.createElement('p', null, 'Manage rooms and watch with friends')
       ),
       React.createElement('div', { className: 'rooms-section' },
         React.createElement('div', { className: 'rooms-header' },
-          React.createElement('h2', null, React.createElement('span', { className: 'section-icon' }, '🚪'), 'My Rooms', React.createElement('span', { className: 'room-count' }, rooms.length)),
-          React.createElement('button', { className: 'btn primary glow', onClick: function() { setShowCreate(true); } }, React.createElement(Icon, { name: 'plus', size: 'sm' }), ' New Room')
+          React.createElement('h2', null, '🚪 My Rooms'),
+          React.createElement('button', { className: 'btn primary', onClick: function() { setShowCreate(true); } }, React.createElement(Icon, { name: 'plus', size: 'sm' }), ' New Room')
         ),
         showCreate && React.createElement('div', { className: 'create-room-form' },
           React.createElement('input', { type: 'text', value: newRoomName, onChange: function(e) { setNewRoomName(e.target.value); }, placeholder: 'Room name', autoFocus: true, onKeyDown: function(e) { if (e.key === 'Enter') createRoom(); } }),
           React.createElement('button', { className: 'btn primary', onClick: createRoom }, 'Create'),
-          React.createElement('button', { className: 'btn ghost', onClick: function() { setShowCreate(false); } }, 'Cancel')
+          React.createElement('button', { className: 'btn', onClick: function() { setShowCreate(false); } }, 'Cancel')
         ),
-        rooms.length > 0 ? React.createElement('div', { className: 'rooms-grid' },
+        React.createElement('div', { className: 'rooms-grid' },
           rooms.map(function(room) {
             return React.createElement('div', { key: room.id, className: 'room-card' },
-              React.createElement('div', { className: 'room-card-bg' }),
               React.createElement('div', { className: 'room-card-content' },
-                React.createElement('div', { className: 'room-card-header' },
-                  editingRoom === room.id ? React.createElement('input', { type: 'text', value: editName, onChange: function(e) { setEditName(e.target.value); }, onBlur: function() { renameRoom(room.id); }, onKeyDown: function(e) { if (e.key === 'Enter') renameRoom(room.id); if (e.key === 'Escape') setEditingRoom(null); }, autoFocus: true, className: 'room-edit-input' }) : React.createElement('h3', null, room.name)
-                ),
+                editingRoom === room.id 
+                  ? React.createElement('input', { type: 'text', value: editName, onChange: function(e) { setEditName(e.target.value); }, onBlur: function() { renameRoom(room.id); }, onKeyDown: function(e) { if (e.key === 'Enter') renameRoom(room.id); if (e.key === 'Escape') setEditingRoom(null); }, autoFocus: true, className: 'room-edit-input' })
+                  : React.createElement('h3', null, room.name),
                 React.createElement('div', { className: 'room-card-actions' },
-                  React.createElement('button', { className: 'btn primary enter-btn', onClick: function() { onEnterRoom(room); } }, React.createElement(Icon, { name: 'enter', size: 'sm' }), ' Enter'),
-                  React.createElement('div', { className: 'room-tools' },
-                    React.createElement('button', { className: 'tool-btn', onClick: function() { copyShareLink(room.id); }, title: 'Share' }, React.createElement(Icon, { name: 'share', size: 'sm' })),
-                    React.createElement('button', { className: 'tool-btn', onClick: function() { setEditingRoom(room.id); setEditName(room.name); }, title: 'Rename' }, React.createElement(Icon, { name: 'edit', size: 'sm' })),
-                    React.createElement('button', { className: 'tool-btn danger', onClick: function() { deleteRoom(room.id); }, title: 'Delete' }, React.createElement(Icon, { name: 'trash', size: 'sm' }))
-                  )
+                  React.createElement('button', { className: 'btn primary', onClick: function() { onEnterRoom(room); } }, React.createElement(Icon, { name: 'enter', size: 'sm' }), ' Enter'),
+                  React.createElement('button', { className: 'icon-btn', onClick: function() { copyShareLink(room.id); }, title: 'Share' }, React.createElement(Icon, { name: 'share', size: 'sm' })),
+                  React.createElement('button', { className: 'icon-btn', onClick: function() { setEditingRoom(room.id); setEditName(room.name); }, title: 'Rename' }, React.createElement(Icon, { name: 'edit', size: 'sm' })),
+                  React.createElement('button', { className: 'icon-btn danger', onClick: function() { deleteRoom(room.id); }, title: 'Delete' }, React.createElement(Icon, { name: 'trash', size: 'sm' }))
                 )
               )
             );
           })
-        ) : React.createElement('div', { className: 'no-rooms' },
-          React.createElement('div', { className: 'no-rooms-icon' }, '🏰'),
-          React.createElement('h3', null, 'No Rooms Yet'),
-          React.createElement('p', null, 'Create your first room'),
-          React.createElement('button', { className: 'btn primary glow', onClick: function() { setShowCreate(true); } }, React.createElement(Icon, { name: 'plus', size: 'sm' }), ' Create a Room')
         )
       )
     ),
@@ -708,88 +1036,123 @@ function HomePage({ user, onEnterRoom, onLogout, onUpdateUser }) {
 // ============================================
 // Room Component
 // ============================================
-function Room({ user, room, hostId, visitorDisplayName, onHome, onLogout, onUpdateUser }) {
-  var [playlists, setPlaylists] = useState([]);
-  var [activePlaylist, setActivePlaylist] = useState(null);
-  var [currentVideo, setCurrentVideo] = useState(null);
-  var [currentIndex, setCurrentIndex] = useState(-1);
-  var [urlInput, setUrlInput] = useState('');
-  var [newPlaylistName, setNewPlaylistName] = useState('');
-  var [showCreatePlaylist, setShowCreatePlaylist] = useState(false);
-  var [sidebarOpen, setSidebarOpen] = useState(true);
-  var [shareModalOpen, setShareModalOpen] = useState(false);
-  var [settingsOpen, setSettingsOpen] = useState(false);
-  var [notification, setNotification] = useState(null);
-  var [connectedUsers, setConnectedUsers] = useState([]);
+function Room(props) {
+  var user = props.user;
+  var room = props.room;
+  var hostId = props.hostId;
+  var guestDisplayName = props.guestDisplayName;
+  var onHome = props.onHome;
+  var onLogout = props.onLogout;
+  var onUpdateUser = props.onUpdateUser;
+  
+  var _playlists = useState([]);
+  var playlists = _playlists[0];
+  var setPlaylists = _playlists[1];
+  
+  var _activePlaylist = useState(null);
+  var activePlaylist = _activePlaylist[0];
+  var setActivePlaylist = _activePlaylist[1];
+  
+  var _currentVideo = useState(null);
+  var currentVideo = _currentVideo[0];
+  var setCurrentVideo = _currentVideo[1];
+  
+  var _currentIndex = useState(-1);
+  var currentIndex = _currentIndex[0];
+  var setCurrentIndex = _currentIndex[1];
+  
+  var _urlInput = useState('');
+  var urlInput = _urlInput[0];
+  var setUrlInput = _urlInput[1];
+  
+  var _sidebarOpen = useState(true);
+  var sidebarOpen = _sidebarOpen[0];
+  var setSidebarOpen = _sidebarOpen[1];
+  
+  var _shareModalOpen = useState(false);
+  var shareModalOpen = _shareModalOpen[0];
+  var setShareModalOpen = _shareModalOpen[1];
+  
+  var _settingsOpen = useState(false);
+  var settingsOpen = _settingsOpen[0];
+  var setSettingsOpen = _settingsOpen[1];
+  
+  var _notification = useState(null);
+  var notification = _notification[0];
+  var setNotification = _notification[1];
+  
+  var _connectedUsers = useState([]);
+  var connectedUsers = _connectedUsers[0];
+  var setConnectedUsers = _connectedUsers[1];
+  
+  var _playbackState = useState({});
+  var playbackState = _playbackState[0];
+  var setPlaybackState = _playbackState[1];
+  
   var fileInputRef = useRef(null);
-  var presenceInterval = useRef(null);
+  var syncInterval = useRef(null);
+  var lastSyncTime = useRef(null);
+  var localChange = useRef(false);
 
   var visitorId = user ? user.id : api.getGuestId();
   var isOwner = user && user.id === hostId;
-  var displayName = visitorDisplayName || (user ? user.displayName : 'Guest');
+  var displayName = guestDisplayName || (user ? user.displayName : 'Guest');
 
-  var lastSyncTime = useRef(null);
-  var localVideoChange = useRef(false);
-
-  // Sync room state from server
+  // Sync room state
   function syncRoomState() {
     api.rooms.getSync(room.id).then(function(data) {
-      // Update connected users
-      if (data.members) {
-        setConnectedUsers(data.members);
-      }
+      if (data.members) setConnectedUsers(data.members);
       
-      // Update playlists
       if (data.playlists) {
         setPlaylists(data.playlists);
-        // Update active playlist if it exists
         if (activePlaylist) {
           var updated = data.playlists.find(function(p) { return p.id === activePlaylist.id; });
           if (updated) setActivePlaylist(updated);
-        } else if (data.playlists.length > 0) {
+        } else if (data.playlists.length > 0 && !activePlaylist) {
           setActivePlaylist(data.playlists[0]);
         }
       }
       
-      // Update current video from server (if we didn't just change it locally)
-      if (data.room && data.room.playbackUpdatedAt && !localVideoChange.current) {
+      // Sync video if not local change
+      if (data.room && data.room.playbackUpdatedAt && !localChange.current) {
         var serverTime = new Date(data.room.playbackUpdatedAt).getTime();
         if (!lastSyncTime.current || serverTime > lastSyncTime.current) {
           if (data.room.currentVideoUrl) {
-            setCurrentVideo({
-              id: 'synced',
-              title: data.room.currentVideoTitle || data.room.currentVideoUrl,
-              url: data.room.currentVideoUrl
-            });
+            var newVideo = { id: 'synced', title: data.room.currentVideoTitle || data.room.currentVideoUrl, url: data.room.currentVideoUrl };
+            if (!currentVideo || currentVideo.url !== newVideo.url) {
+              setCurrentVideo(newVideo);
+            }
+          } else if (currentVideo && currentVideo.id === 'synced') {
+            setCurrentVideo(null);
           }
           lastSyncTime.current = serverTime;
         }
       }
-      localVideoChange.current = false;
+      localChange.current = false;
     }).catch(console.error);
   }
 
-  // Initial load and join room
   useEffect(function() {
-    api.rooms.join(room.id, displayName).then(function() {
-      syncRoomState();
-    }).catch(console.error);
+    api.rooms.join(room.id, displayName).then(syncRoomState).catch(console.error);
     
-    // Poll for updates every 3 seconds
-    presenceInterval.current = setInterval(function() {
+    syncInterval.current = setInterval(function() {
       api.presence.heartbeat(room.id, 'online').catch(console.error);
       syncRoomState();
-    }, 3000);
+    }, SYNC_INTERVAL);
     
     return function() {
-      clearInterval(presenceInterval.current);
+      clearInterval(syncInterval.current);
       api.presence.leave(room.id).catch(console.error);
     };
-  }, [room.id, displayName]);
+  }, [room.id]);
 
-  // Broadcast video change to server
-  function broadcastVideoChange(video) {
-    localVideoChange.current = true;
+  function showNotif(msg, type) {
+    setNotification({ message: msg, type: type || 'success' });
+    setTimeout(function() { setNotification(null); }, 3000);
+  }
+
+  function broadcastVideo(video) {
+    localChange.current = true;
     api.rooms.updateSync(room.id, {
       currentVideoUrl: video ? video.url : null,
       currentVideoTitle: video ? video.title : null,
@@ -797,29 +1160,31 @@ function Room({ user, room, hostId, visitorDisplayName, onHome, onLogout, onUpda
     }).catch(console.error);
   }
 
-  function showNotif(msg, type) {
-    setNotification({ message: msg, type: type || 'success' });
-    setTimeout(function() { setNotification(null); }, 3000);
-  }
-
-  function createPlaylist() {
-    if (!newPlaylistName.trim()) return;
-    api.playlists.create(room.id, newPlaylistName.trim()).then(function(p) {
-      var newPl = { ...p, videos: [] };
+  function handleCreatePlaylist(name) {
+    api.playlists.create(room.id, name).then(function(p) {
+      var newPl = Object.assign({}, p, { videos: [] });
       setPlaylists(playlists.concat([newPl]));
       setActivePlaylist(newPl);
-      setNewPlaylistName('');
-      setShowCreatePlaylist(false);
       showNotif('Playlist created!');
     }).catch(function(err) { showNotif('Failed: ' + err.message, 'error'); });
   }
 
-  function deletePlaylist(id) {
+  function handleDeletePlaylist(id) {
     if (!confirm('Delete playlist?')) return;
     api.playlists.delete(id).then(function() {
       setPlaylists(playlists.filter(function(p) { return p.id !== id; }));
       if (activePlaylist && activePlaylist.id === id) { setActivePlaylist(null); setCurrentVideo(null); }
       showNotif('Deleted!', 'warning');
+    }).catch(function(err) { showNotif('Failed: ' + err.message, 'error'); });
+  }
+
+  function handleRenamePlaylist(id, name) {
+    api.playlists.update(id, { name: name }).then(function() {
+      setPlaylists(playlists.map(function(p) { return p.id === id ? Object.assign({}, p, { name: name }) : p; }));
+      if (activePlaylist && activePlaylist.id === id) {
+        setActivePlaylist(Object.assign({}, activePlaylist, { name: name }));
+      }
+      showNotif('Renamed!');
     }).catch(function(err) { showNotif('Failed: ' + err.message, 'error'); });
   }
 
@@ -829,7 +1194,7 @@ function Room({ user, room, hostId, visitorDisplayName, onHome, onLogout, onUpda
     if (!parsed) { showNotif('Invalid URL', 'error'); return; }
     api.playlists.addVideo(activePlaylist.id, { title: urlInput.trim(), url: urlInput.trim(), videoType: parsed.type }).then(function(video) {
       var newVideos = (activePlaylist.videos || []).concat([video]);
-      var updated = { ...activePlaylist, videos: newVideos };
+      var updated = Object.assign({}, activePlaylist, { videos: newVideos });
       setPlaylists(playlists.map(function(p) { return p.id === activePlaylist.id ? updated : p; }));
       setActivePlaylist(updated);
       setUrlInput('');
@@ -837,48 +1202,64 @@ function Room({ user, room, hostId, visitorDisplayName, onHome, onLogout, onUpda
     }).catch(function(err) { showNotif('Failed: ' + err.message, 'error'); });
   }
 
-  function playVideo(video, index) { 
-    setCurrentVideo(video); 
+  function playVideo(video, index) {
+    setCurrentVideo(video);
     setCurrentIndex(index);
-    broadcastVideoChange(video);
+    broadcastVideo(video);
   }
+
   function playNow() {
     if (!urlInput.trim()) return;
     var parsed = parseVideoUrl(urlInput.trim());
     if (!parsed) { showNotif('Invalid URL', 'error'); return; }
     var video = { id: 'temp', title: urlInput, url: urlInput.trim() };
     setCurrentVideo(video);
-    broadcastVideoChange(video);
+    broadcastVideo(video);
     setUrlInput('');
   }
+
   function playPrev() {
     if (!activePlaylist || currentIndex <= 0) return;
     var videos = activePlaylist.videos || [];
     var video = videos[currentIndex - 1];
     setCurrentVideo(video);
     setCurrentIndex(currentIndex - 1);
-    broadcastVideoChange(video);
+    broadcastVideo(video);
   }
+
   function playNext() {
     if (!activePlaylist) return;
     var videos = activePlaylist.videos || [];
-    if (currentIndex < videos.length - 1) { 
+    if (currentIndex < videos.length - 1) {
       var video = videos[currentIndex + 1];
-      setCurrentVideo(video); 
+      setCurrentVideo(video);
       setCurrentIndex(currentIndex + 1);
-      broadcastVideoChange(video);
+      broadcastVideo(video);
     }
   }
+
   function removeVideo(videoId) {
     if (!activePlaylist) return;
     api.playlists.removeVideo(activePlaylist.id, videoId).then(function() {
       var newVideos = (activePlaylist.videos || []).filter(function(v) { return v.id !== videoId; });
-      var updated = { ...activePlaylist, videos: newVideos };
+      var updated = Object.assign({}, activePlaylist, { videos: newVideos });
       setPlaylists(playlists.map(function(p) { return p.id === activePlaylist.id ? updated : p; }));
       setActivePlaylist(updated);
       if (currentVideo && currentVideo.id === videoId) setCurrentVideo(null);
       showNotif('Removed!');
     }).catch(function(err) { showNotif('Failed: ' + err.message, 'error'); });
+  }
+
+  function reorderVideos(videoIds) {
+    if (!activePlaylist) return;
+    api.playlists.reorderVideos(activePlaylist.id, videoIds).then(function() {
+      var videoMap = {};
+      (activePlaylist.videos || []).forEach(function(v) { videoMap[v.id] = v; });
+      var newVideos = videoIds.map(function(id) { return videoMap[id]; }).filter(Boolean);
+      var updated = Object.assign({}, activePlaylist, { videos: newVideos });
+      setPlaylists(playlists.map(function(p) { return p.id === activePlaylist.id ? updated : p; }));
+      setActivePlaylist(updated);
+    }).catch(function(err) { showNotif('Failed to reorder: ' + err.message, 'error'); });
   }
 
   function copyShareLink() {
@@ -888,21 +1269,26 @@ function Room({ user, room, hostId, visitorDisplayName, onHome, onLogout, onUpda
   }
 
   function handleKick(visitorId, guestId) {
-    api.rooms.kick(room.id, guestId ? null : visitorId, guestId).then(function() {
-      setConnectedUsers(connectedUsers.filter(function(u) { return u.visitorId !== visitorId; }));
+    api.rooms.kick(room.id, visitorId, guestId).then(function() {
+      setConnectedUsers(connectedUsers.filter(function(u) { return u.visitorId !== visitorId && u.guestId !== guestId; }));
       showNotif('Kicked!');
     }).catch(function(err) { showNotif('Failed: ' + err.message, 'error'); });
   }
 
-  function handleRename(visitorId, guestId, name) {
-    api.presence.updateMember(room.id, guestId ? null : visitorId, guestId, { displayName: name }).then(function() {
-      setConnectedUsers(connectedUsers.map(function(u) { return u.visitorId === visitorId ? { ...u, displayName: name } : u; }));
+  function handleRenameUser(visitorId, guestId, name) {
+    api.presence.updateMember(room.id, visitorId, guestId, { displayName: name }).then(function() {
+      setConnectedUsers(connectedUsers.map(function(u) { 
+        return (u.visitorId === visitorId || u.guestId === guestId) ? Object.assign({}, u, { displayName: name }) : u; 
+      }));
+      showNotif('Renamed!');
     }).catch(console.error);
   }
 
   function handleColorChange(visitorId, guestId, color) {
-    api.presence.updateMember(room.id, guestId ? null : visitorId, guestId, { color: color }).then(function() {
-      setConnectedUsers(connectedUsers.map(function(u) { return u.visitorId === visitorId ? { ...u, color: color } : u; }));
+    api.presence.updateMember(room.id, visitorId, guestId, { color: color }).then(function() {
+      setConnectedUsers(connectedUsers.map(function(u) { 
+        return (u.visitorId === visitorId || u.guestId === guestId) ? Object.assign({}, u, { color: color }) : u; 
+      }));
     }).catch(console.error);
   }
 
@@ -911,7 +1297,9 @@ function Room({ user, room, hostId, visitorDisplayName, onHome, onLogout, onUpda
     files.forEach(function(file) {
       var url = URL.createObjectURL(file);
       var title = file.name.replace(/\.[^/.]+$/, '');
-      setCurrentVideo({ id: 'local_' + Date.now(), title: title, url: url });
+      var video = { id: 'local_' + Date.now(), title: title, url: url };
+      setCurrentVideo(video);
+      broadcastVideo(video);
     });
     e.target.value = '';
   }
@@ -924,81 +1312,72 @@ function Room({ user, room, hostId, visitorDisplayName, onHome, onLogout, onUpda
       React.createElement('div', { className: 'header-left' },
         React.createElement('button', { className: 'icon-btn', onClick: function() { setSidebarOpen(!sidebarOpen); } }, React.createElement(Icon, { name: 'menu' })),
         onHome && React.createElement('button', { className: 'icon-btn', onClick: onHome, title: 'Home' }, React.createElement(Icon, { name: 'home' })),
-        React.createElement('div', { className: 'room-info' }, React.createElement('h1', null, room.name))
+        React.createElement('h1', { className: 'room-title' }, room.name)
       ),
       React.createElement('div', { className: 'header-center' },
         React.createElement('div', { className: 'url-bar' },
           React.createElement('input', { value: urlInput, onChange: function(e) { setUrlInput(e.target.value); }, placeholder: 'Enter URL...', onKeyDown: function(e) { if (e.key === 'Enter') playNow(); } }),
-          React.createElement('button', { className: 'icon-btn primary', onClick: playNow }, React.createElement(Icon, { name: 'play' })),
-          React.createElement('button', { className: 'icon-btn', onClick: handleAddUrl, disabled: !activePlaylist }, React.createElement(Icon, { name: 'plus' })),
-          React.createElement('button', { className: 'icon-btn', onClick: function() { fileInputRef.current && fileInputRef.current.click(); } }, React.createElement(Icon, { name: 'upload' }))
+          React.createElement('button', { className: 'icon-btn primary', onClick: playNow, title: 'Play Now' }, React.createElement(Icon, { name: 'play' })),
+          React.createElement('button', { className: 'icon-btn', onClick: handleAddUrl, disabled: !activePlaylist, title: 'Add to Playlist' }, React.createElement(Icon, { name: 'plus' })),
+          React.createElement('button', { className: 'icon-btn', onClick: function() { fileInputRef.current && fileInputRef.current.click(); }, title: 'Upload File' }, React.createElement(Icon, { name: 'upload' }))
         )
       ),
       React.createElement('div', { className: 'header-right' },
         React.createElement('button', { className: 'btn secondary sm', onClick: function() { setShareModalOpen(true); } }, React.createElement(Icon, { name: 'share', size: 'sm' }), ' Share'),
-        user ? React.createElement(UserMenu, { user: user, onSettings: function() { setSettingsOpen(true); }, onLogout: onLogout, onHome: onHome }) :
-          React.createElement('div', { className: 'guest-badge' }, React.createElement('span', { className: 'guest-name' }, displayName), React.createElement('span', { className: 'guest-tag' }, 'Guest'))
+        user 
+          ? React.createElement(UserMenu, { user: user, onSettings: function() { setSettingsOpen(true); }, onLogout: onLogout, onHome: onHome })
+          : React.createElement('div', { className: 'guest-badge' }, React.createElement('span', { className: 'guest-name' }, displayName), React.createElement('span', { className: 'guest-tag' }, 'Guest'))
       )
     ),
     
     React.createElement('div', { className: 'dashboard-content' },
       React.createElement('aside', { className: 'sidebar' + (sidebarOpen ? '' : ' closed') },
-        React.createElement('div', { className: 'sidebar-header' },
-          React.createElement('h3', null, 'Playlists'),
-          React.createElement('button', { className: 'icon-btn sm', onClick: function() { setShowCreatePlaylist(true); } }, React.createElement(Icon, { name: 'plus', size: 'sm' }))
-        ),
-        showCreatePlaylist && React.createElement('div', { className: 'create-playlist-form' },
-          React.createElement('input', { value: newPlaylistName, onChange: function(e) { setNewPlaylistName(e.target.value); }, placeholder: 'Name', onKeyDown: function(e) { if (e.key === 'Enter') createPlaylist(); }, autoFocus: true }),
-          React.createElement('div', { className: 'form-actions' },
-            React.createElement('button', { className: 'btn primary sm', onClick: createPlaylist }, 'Create'),
-            React.createElement('button', { className: 'btn sm', onClick: function() { setShowCreatePlaylist(false); } }, 'Cancel')
-          )
-        ),
-        React.createElement('div', { className: 'playlists-list' },
-          playlists.length === 0 ? React.createElement('div', { className: 'empty-playlists' }, React.createElement('p', null, 'No playlists')) :
-          playlists.map(function(p) {
-            return React.createElement('div', { key: p.id, className: 'playlist-item' + (activePlaylist && activePlaylist.id === p.id ? ' active' : '') },
-              React.createElement('button', { className: 'playlist-select', onClick: function() { setActivePlaylist(p); } },
-                React.createElement('span', { className: 'playlist-name' }, p.name),
-                React.createElement('span', { className: 'playlist-count' }, (p.videos || []).length)
-              ),
-              React.createElement('div', { className: 'playlist-actions' },
-                React.createElement('button', { className: 'icon-btn sm danger', onClick: function() { deletePlaylist(p.id); } }, React.createElement(Icon, { name: 'trash', size: 'sm' }))
-              )
-            );
-          })
-        )
+        React.createElement(PlaylistPanel, {
+          playlists: playlists,
+          activePlaylist: activePlaylist,
+          onSelect: setActivePlaylist,
+          onCreate: handleCreatePlaylist,
+          onDelete: handleDeletePlaylist,
+          onRename: handleRenamePlaylist
+        })
       ),
       
       React.createElement('main', { className: 'main-content' },
         React.createElement('div', { className: 'queue-panel' },
-          React.createElement('div', { className: 'queue-header' }, React.createElement('h3', null, '📜 ' + (activePlaylist ? activePlaylist.name : 'Select Playlist'))),
-          React.createElement('div', { className: 'video-list' },
-            activePlaylist && (activePlaylist.videos || []).map(function(v, i) {
-              return React.createElement('div', { key: v.id, className: 'video-item' + (currentVideo && currentVideo.id === v.id ? ' playing' : '') },
-                React.createElement('div', { className: 'video-item-top' },
-                  React.createElement('span', { className: 'video-index' }, i + 1),
-                  React.createElement('span', { className: 'video-type-icon' }, getVideoTypeIcon(parseVideoUrl(v.url)?.type)),
-                  React.createElement('span', { className: 'video-title', onClick: function() { playVideo(v, i); } }, v.title),
-                  React.createElement('button', { className: 'icon-btn sm', onClick: function() { removeVideo(v.id); } }, React.createElement(Icon, { name: 'trash', size: 'sm' }))
-                )
-              );
-            }),
-            activePlaylist && (activePlaylist.videos || []).length === 0 && React.createElement('div', { className: 'empty-queue' }, React.createElement('p', null, 'No videos'))
-          )
+          React.createElement('div', { className: 'queue-header' }, 
+            React.createElement('h3', null, '📜 ', activePlaylist ? activePlaylist.name : 'Select Playlist')
+          ),
+          activePlaylist 
+            ? React.createElement(DraggableVideoList, {
+                videos: activePlaylist.videos || [],
+                currentVideo: currentVideo,
+                onPlay: playVideo,
+                onRemove: removeVideo,
+                onReorder: reorderVideos
+              })
+            : React.createElement('div', { className: 'empty-queue' }, React.createElement('p', null, 'Select a playlist'))
         ),
         
         React.createElement('div', { className: 'video-section' },
-          React.createElement(VideoPlayer, { video: currentVideo, onEnded: playNext }),
+          React.createElement(VideoPlayer, { video: currentVideo, onEnded: playNext, playbackState: playbackState, isOwner: isOwner }),
           React.createElement('div', { className: 'playback-controls' },
             React.createElement('button', { className: 'btn sm', onClick: playPrev, disabled: !activePlaylist || currentIndex <= 0 }, React.createElement(Icon, { name: 'prev', size: 'sm' }), ' Prev'),
             React.createElement('div', { className: 'now-playing' },
-              currentVideo ? React.createElement(React.Fragment, null, React.createElement('span', { className: 'playing-label' }, 'Now playing'), React.createElement('span', { className: 'playing-title' }, currentVideo.title)) :
-                React.createElement('span', { className: 'playing-label' }, 'Nothing playing')
+              currentVideo 
+                ? React.createElement(React.Fragment, null, React.createElement('span', { className: 'playing-label' }, 'Now playing'), React.createElement('span', { className: 'playing-title' }, currentVideo.title))
+                : React.createElement('span', { className: 'playing-label' }, 'Nothing playing')
             ),
-            React.createElement('button', { className: 'btn sm', onClick: playNext, disabled: !activePlaylist || currentIndex >= ((activePlaylist?.videos || []).length) - 1 }, 'Next ', React.createElement(Icon, { name: 'next', size: 'sm' }))
+            React.createElement('button', { className: 'btn sm', onClick: playNext, disabled: !activePlaylist || currentIndex >= ((activePlaylist && activePlaylist.videos || []).length) - 1 }, 'Next ', React.createElement(Icon, { name: 'next', size: 'sm' }))
           ),
-          React.createElement(ConnectedUsers, { users: connectedUsers, isHost: isOwner, currentUserId: visitorId, roomId: room.id, onKick: handleKick, onRename: handleRename, onColorChange: handleColorChange })
+          React.createElement(ConnectedUsers, { 
+            users: connectedUsers, 
+            isHost: isOwner, 
+            currentUserId: visitorId, 
+            roomId: room.id, 
+            onKick: handleKick, 
+            onRename: handleRenameUser, 
+            onColorChange: handleColorChange 
+          })
         )
       )
     ),
@@ -1007,6 +1386,7 @@ function Room({ user, room, hostId, visitorDisplayName, onHome, onLogout, onUpda
       React.createElement('div', { className: 'modal', onClick: function(e) { e.stopPropagation(); } },
         React.createElement('button', { className: 'modal-close', onClick: function() { setShareModalOpen(false); } }, '×'),
         React.createElement('h2', null, 'Share Room'),
+        React.createElement('p', null, 'Anyone with this link can join as a guest'),
         React.createElement('div', { className: 'share-link-box' },
           React.createElement('input', { value: location.origin + location.pathname + '#/room/' + hostId + '/' + room.id, readOnly: true }),
           React.createElement('button', { className: 'btn primary', onClick: copyShareLink }, 'Copy')
@@ -1023,13 +1403,45 @@ function Room({ user, room, hostId, visitorDisplayName, onHome, onLogout, onUpda
 // Main App
 // ============================================
 function MultiviewApp() {
-  var [user, setUser] = useState(null);
-  var [loading, setLoading] = useState(true);
-  var [error, setError] = useState(null);
-  var [currentView, setCurrentView] = useState('home');
-  var [currentRoom, setCurrentRoom] = useState(null);
-  var [roomHostId, setRoomHostId] = useState(null);
-  var [visitorDisplayName, setVisitorDisplayName] = useState(null);
+  var _user = useState(null);
+  var user = _user[0];
+  var setUser = _user[1];
+  
+  var _loading = useState(true);
+  var loading = _loading[0];
+  var setLoading = _loading[1];
+  
+  var _error = useState(null);
+  var error = _error[0];
+  var setError = _error[1];
+  
+  var _currentView = useState('home');
+  var currentView = _currentView[0];
+  var setCurrentView = _currentView[1];
+  
+  var _currentRoom = useState(null);
+  var currentRoom = _currentRoom[0];
+  var setCurrentRoom = _currentRoom[1];
+  
+  var _roomHostId = useState(null);
+  var roomHostId = _roomHostId[0];
+  var setRoomHostId = _roomHostId[1];
+  
+  var _guestDisplayName = useState(null);
+  var guestDisplayName = _guestDisplayName[0];
+  var setGuestDisplayName = _guestDisplayName[1];
+  
+  var _showGuestModal = useState(false);
+  var showGuestModal = _showGuestModal[0];
+  var setShowGuestModal = _showGuestModal[1];
+  
+  var _showAuthScreen = useState(false);
+  var showAuthScreen = _showAuthScreen[0];
+  var setShowAuthScreen = _showAuthScreen[1];
+  
+  var _pendingRoom = useState(null);
+  var pendingRoom = _pendingRoom[0];
+  var setPendingRoom = _pendingRoom[1];
 
   useEffect(function() { checkAuth(); }, []);
 
@@ -1037,47 +1449,145 @@ function MultiviewApp() {
     api.auth.getCurrentUser().then(function(u) {
       if (u) setUser(u);
       var roomInfo = parseRoomUrl();
-      if (roomInfo) handleJoinFromUrl(roomInfo.hostId, roomInfo.roomId);
-    }).catch(function(err) { setError('Auth error: ' + err.message); }).finally(function() { setLoading(false); });
+      if (roomInfo) {
+        handleJoinFromUrl(roomInfo.hostId, roomInfo.roomId, u);
+      }
+    }).catch(function(err) { 
+      console.error('Auth error:', err);
+    }).finally(function() { 
+      setLoading(false); 
+    });
   }
 
   useEffect(function() {
     function handleHashChange() {
       var roomInfo = parseRoomUrl();
-      if (roomInfo) handleJoinFromUrl(roomInfo.hostId, roomInfo.roomId);
-      else if (currentView === 'room') { setCurrentView('home'); setCurrentRoom(null); }
+      if (roomInfo) {
+        handleJoinFromUrl(roomInfo.hostId, roomInfo.roomId, user);
+      } else if (currentView === 'room') {
+        setCurrentView('home');
+        setCurrentRoom(null);
+      }
     }
     window.addEventListener('hashchange', handleHashChange);
     return function() { window.removeEventListener('hashchange', handleHashChange); };
   }, [currentView, user]);
 
-  function handleJoinFromUrl(hostId, roomId) {
+  function handleJoinFromUrl(hostId, roomId, currentUser) {
     api.rooms.get(roomId).then(function(room) {
-      if (!room) { alert('Room not found'); location.hash = ''; return; }
-      setCurrentRoom(room);
-      setRoomHostId(hostId);
-      setVisitorDisplayName(user ? user.displayName : 'Guest');
+      if (!room) { 
+        alert('Room not found'); 
+        location.hash = ''; 
+        return; 
+      }
+      
+      // If user is logged in, join directly with their display name
+      if (currentUser) {
+        setCurrentRoom(room);
+        setRoomHostId(hostId);
+        setGuestDisplayName(currentUser.displayName);
+        setCurrentView('room');
+      } else {
+        // Show guest modal for non-logged-in users
+        setPendingRoom({ room: room, hostId: hostId });
+        setShowGuestModal(true);
+      }
+    }).catch(function(err) { 
+      alert('Failed to load room: ' + err.message); 
+      location.hash = ''; 
+    });
+  }
+
+  function handleGuestJoin(displayName) {
+    if (!pendingRoom) return;
+    setCurrentRoom(pendingRoom.room);
+    setRoomHostId(pendingRoom.hostId);
+    setGuestDisplayName(displayName);
+    setCurrentView('room');
+    setShowGuestModal(false);
+    setPendingRoom(null);
+  }
+
+  function handleShowAuth() {
+    setShowGuestModal(false);
+    setShowAuthScreen(true);
+  }
+
+  function handleAuthComplete(u) {
+    setUser(u);
+    setShowAuthScreen(false);
+    if (pendingRoom) {
+      setCurrentRoom(pendingRoom.room);
+      setRoomHostId(pendingRoom.hostId);
+      setGuestDisplayName(u.displayName);
       setCurrentView('room');
-    }).catch(function(err) { alert('Failed: ' + err.message); location.hash = ''; });
+      setPendingRoom(null);
+    }
   }
 
   function handleEnterRoom(room) {
     location.hash = '/room/' + user.id + '/' + room.id;
     setCurrentRoom(room);
     setRoomHostId(user.id);
-    setVisitorDisplayName(user.displayName);
+    setGuestDisplayName(user.displayName);
     setCurrentView('room');
   }
 
-  function handleGoHome() { location.hash = ''; setCurrentView('home'); setCurrentRoom(null); }
-  function handleLogout() { api.auth.logout().then(function() { setUser(null); setCurrentView('home'); setCurrentRoom(null); location.hash = ''; }); }
-  function handleUpdateUser(u) { setUser(u); }
+  function handleGoHome() {
+    location.hash = '';
+    setCurrentView('home');
+    setCurrentRoom(null);
+  }
 
-  if (loading) return React.createElement('div', { className: 'loading-screen' }, React.createElement('div', { className: 'loading-dragon' }, '🐉'), React.createElement('div', { className: 'loading-text' }, 'Loading...'));
-  if (error) return React.createElement('div', { className: 'loading-screen' }, React.createElement('div', { className: 'loading-dragon' }, '❌'), React.createElement('div', { className: 'loading-text' }, error), React.createElement('button', { className: 'btn primary', onClick: function() { setError(null); setLoading(true); checkAuth(); }, style: { marginTop: '20px' } }, 'Retry'));
-  if (!user) return React.createElement(AuthScreen, { onAuth: function(u) { setUser(u); var roomInfo = parseRoomUrl(); if (roomInfo) handleJoinFromUrl(roomInfo.hostId, roomInfo.roomId); } });
-  if (currentView === 'room' && currentRoom) return React.createElement(Room, { user: user, room: currentRoom, hostId: roomHostId, visitorDisplayName: visitorDisplayName, onHome: handleGoHome, onLogout: handleLogout, onUpdateUser: handleUpdateUser });
-  return React.createElement(HomePage, { user: user, onEnterRoom: handleEnterRoom, onLogout: handleLogout, onUpdateUser: handleUpdateUser });
+  function handleLogout() {
+    api.auth.logout().then(function() {
+      setUser(null);
+      setCurrentView('home');
+      setCurrentRoom(null);
+      location.hash = '';
+    });
+  }
+
+  function handleUpdateUser(u) {
+    setUser(u);
+  }
+
+  if (loading) {
+    return React.createElement('div', { className: 'loading-screen' }, 
+      React.createElement('div', { className: 'loading-dragon' }, '🐉'), 
+      React.createElement('div', { className: 'loading-text' }, 'Loading...')
+    );
+  }
+
+  if (showGuestModal) {
+    return React.createElement(GuestJoinModal, { onJoin: handleGuestJoin, onLogin: handleShowAuth });
+  }
+
+  if (showAuthScreen) {
+    return React.createElement(AuthScreen, { onAuth: handleAuthComplete, returnTo: pendingRoom });
+  }
+
+  if (!user && currentView !== 'room') {
+    return React.createElement(AuthScreen, { onAuth: function(u) { setUser(u); var roomInfo = parseRoomUrl(); if (roomInfo) handleJoinFromUrl(roomInfo.hostId, roomInfo.roomId, u); } });
+  }
+
+  if (currentView === 'room' && currentRoom) {
+    return React.createElement(Room, { 
+      user: user, 
+      room: currentRoom, 
+      hostId: roomHostId, 
+      guestDisplayName: guestDisplayName, 
+      onHome: user ? handleGoHome : null, 
+      onLogout: handleLogout, 
+      onUpdateUser: handleUpdateUser 
+    });
+  }
+
+  if (user) {
+    return React.createElement(HomePage, { user: user, onEnterRoom: handleEnterRoom, onLogout: handleLogout, onUpdateUser: handleUpdateUser });
+  }
+
+  return React.createElement(AuthScreen, { onAuth: function(u) { setUser(u); } });
 }
 
 // Render
