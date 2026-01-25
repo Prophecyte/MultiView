@@ -1,5 +1,6 @@
 // ============================================
-// MULTIVIEW.VIDEO - Complete Synchronized Version
+// MULTIVIEW.VIDEO - Synchronized Playback
+// Uses YouTube IFrame API for play/pause sync
 // ============================================
 
 var useState = React.useState;
@@ -9,7 +10,31 @@ var useCallback = React.useCallback;
 
 var GOOGLE_CLIENT_ID = window.APP_CONFIG?.GOOGLE_CLIENT_ID || '';
 var API_BASE = '/api';
-var SYNC_INTERVAL = 2000;
+var SYNC_INTERVAL = 1500; // Faster sync for better responsiveness
+
+// YouTube API state
+var ytApiReady = false;
+var ytApiCallbacks = [];
+
+// Load YouTube IFrame API
+(function() {
+  var tag = document.createElement('script');
+  tag.src = 'https://www.youtube.com/iframe_api';
+  var firstScript = document.getElementsByTagName('script')[0];
+  firstScript.parentNode.insertBefore(tag, firstScript);
+})();
+
+window.onYouTubeIframeAPIReady = function() {
+  console.log('YouTube IFrame API Ready');
+  ytApiReady = true;
+  ytApiCallbacks.forEach(function(cb) { cb(); });
+  ytApiCallbacks = [];
+};
+
+function onYTReady(callback) {
+  if (ytApiReady) callback();
+  else ytApiCallbacks.push(callback);
+}
 
 // ============================================
 // API Client
@@ -153,15 +178,12 @@ function parseVideoUrl(url) {
   if (ytMatch) return { type: 'youtube', id: ytMatch[1], url: url };
   var vimeoMatch = url.match(/vimeo\.com\/(\d+)/);
   if (vimeoMatch) return { type: 'vimeo', id: vimeoMatch[1], url: url };
-  var spotifyMatch = url.match(/spotify\.com\/(track|album|playlist|episode)\/([a-zA-Z0-9]+)/);
-  if (spotifyMatch) return { type: 'spotify', contentType: spotifyMatch[1], id: spotifyMatch[2], url: url };
-  if (url.includes('soundcloud.com')) return { type: 'soundcloud', url: url };
   if (url.match(/\.(mp4|webm|ogg|mp3|wav|m4a)(\?|$)/i)) return { type: 'direct', url: url };
   return null;
 }
 
 function getVideoTypeIcon(type) {
-  var icons = { youtube: '▶️', spotify: '🎵', vimeo: '🎬', soundcloud: '🔊', direct: '📹' };
+  var icons = { youtube: '▶️', vimeo: '🎬', direct: '📹' };
   return icons[type] || '📹';
 }
 
@@ -213,11 +235,182 @@ function DragonFire() {
 }
 
 // ============================================
+// YouTube Player Component with Sync
+// ============================================
+function YouTubePlayer(props) {
+  var videoId = props.videoId;
+  var playbackState = props.playbackState;
+  var playbackTime = props.playbackTime;
+  var onStateChange = props.onStateChange;
+  var onTimeUpdate = props.onTimeUpdate;
+  var isLocalChange = props.isLocalChange;
+  
+  var containerRef = useRef(null);
+  var playerRef = useRef(null);
+  var lastStateRef = useRef(null);
+  var ignoreNextStateChange = useRef(false);
+
+  useEffect(function() {
+    if (!videoId) return;
+    
+    onYTReady(function() {
+      if (playerRef.current) {
+        playerRef.current.destroy();
+      }
+      
+      playerRef.current = new YT.Player(containerRef.current, {
+        videoId: videoId,
+        playerVars: {
+          autoplay: 1,
+          rel: 0,
+          modestbranding: 1
+        },
+        events: {
+          onReady: function(event) {
+            console.log('YouTube player ready');
+            // Seek to correct time if needed
+            if (playbackTime > 0) {
+              event.target.seekTo(playbackTime, true);
+            }
+            if (playbackState === 'playing') {
+              event.target.playVideo();
+            } else {
+              event.target.pauseVideo();
+            }
+          },
+          onStateChange: function(event) {
+            if (ignoreNextStateChange.current) {
+              ignoreNextStateChange.current = false;
+              return;
+            }
+            
+            var state = event.data;
+            // YT.PlayerState: PLAYING=1, PAUSED=2, BUFFERING=3, ENDED=0
+            if (state === YT.PlayerState.PLAYING) {
+              var currentTime = event.target.getCurrentTime();
+              console.log('Local: Playing at', currentTime);
+              onStateChange('playing', currentTime);
+            } else if (state === YT.PlayerState.PAUSED) {
+              var currentTime = event.target.getCurrentTime();
+              console.log('Local: Paused at', currentTime);
+              onStateChange('paused', currentTime);
+            }
+          }
+        }
+      });
+    });
+    
+    return function() {
+      if (playerRef.current) {
+        playerRef.current.destroy();
+        playerRef.current = null;
+      }
+    };
+  }, [videoId]);
+
+  // Apply remote state changes
+  useEffect(function() {
+    if (!playerRef.current || !playerRef.current.getPlayerState) return;
+    if (isLocalChange) return; // Don't apply our own changes
+    
+    var currentState = playerRef.current.getPlayerState();
+    var currentTime = playerRef.current.getCurrentTime();
+    
+    // Check if we need to sync
+    var timeDiff = Math.abs(currentTime - playbackTime);
+    var shouldSeek = timeDiff > 3; // Sync if more than 3 seconds off
+    
+    if (playbackState === 'playing' && currentState !== YT.PlayerState.PLAYING) {
+      console.log('Remote: Applying play, seeking to', playbackTime);
+      ignoreNextStateChange.current = true;
+      if (shouldSeek) playerRef.current.seekTo(playbackTime, true);
+      playerRef.current.playVideo();
+    } else if (playbackState === 'paused' && currentState === YT.PlayerState.PLAYING) {
+      console.log('Remote: Applying pause at', playbackTime);
+      ignoreNextStateChange.current = true;
+      if (shouldSeek) playerRef.current.seekTo(playbackTime, true);
+      playerRef.current.pauseVideo();
+    } else if (shouldSeek && playbackState === 'playing') {
+      console.log('Remote: Seeking to', playbackTime);
+      playerRef.current.seekTo(playbackTime, true);
+    }
+  }, [playbackState, playbackTime, isLocalChange]);
+
+  return React.createElement('div', { 
+    ref: containerRef, 
+    style: { width: '100%', height: '100%' } 
+  });
+}
+
+// ============================================
 // Video Player
 // ============================================
 function VideoPlayer(props) {
   var video = props.video;
+  var playbackState = props.playbackState;
+  var playbackTime = props.playbackTime;
+  var onStateChange = props.onStateChange;
   var onEnded = props.onEnded;
+  var isLocalChange = props.isLocalChange;
+  
+  var videoRef = useRef(null);
+  var ignoreNextEvent = useRef(false);
+
+  // Direct video element handlers
+  useEffect(function() {
+    if (!videoRef.current) return;
+    
+    function handlePlay() {
+      if (ignoreNextEvent.current) { ignoreNextEvent.current = false; return; }
+      console.log('Direct video: play at', videoRef.current.currentTime);
+      onStateChange('playing', videoRef.current.currentTime);
+    }
+    
+    function handlePause() {
+      if (ignoreNextEvent.current) { ignoreNextEvent.current = false; return; }
+      console.log('Direct video: pause at', videoRef.current.currentTime);
+      onStateChange('paused', videoRef.current.currentTime);
+    }
+    
+    function handleSeeked() {
+      if (ignoreNextEvent.current) { ignoreNextEvent.current = false; return; }
+      var state = videoRef.current.paused ? 'paused' : 'playing';
+      console.log('Direct video: seeked to', videoRef.current.currentTime);
+      onStateChange(state, videoRef.current.currentTime);
+    }
+    
+    videoRef.current.addEventListener('play', handlePlay);
+    videoRef.current.addEventListener('pause', handlePause);
+    videoRef.current.addEventListener('seeked', handleSeeked);
+    
+    return function() {
+      if (videoRef.current) {
+        videoRef.current.removeEventListener('play', handlePlay);
+        videoRef.current.removeEventListener('pause', handlePause);
+        videoRef.current.removeEventListener('seeked', handleSeeked);
+      }
+    };
+  }, [video]);
+
+  // Apply remote state to direct video
+  useEffect(function() {
+    if (!videoRef.current || isLocalChange) return;
+    
+    var timeDiff = Math.abs(videoRef.current.currentTime - playbackTime);
+    
+    if (timeDiff > 2) {
+      ignoreNextEvent.current = true;
+      videoRef.current.currentTime = playbackTime;
+    }
+    
+    if (playbackState === 'playing' && videoRef.current.paused) {
+      ignoreNextEvent.current = true;
+      videoRef.current.play().catch(function() {});
+    } else if (playbackState === 'paused' && !videoRef.current.paused) {
+      ignoreNextEvent.current = true;
+      videoRef.current.pause();
+    }
+  }, [playbackState, playbackTime, isLocalChange]);
 
   if (!video) {
     return React.createElement('div', { className: 'video-placeholder' },
@@ -231,33 +424,54 @@ function VideoPlayer(props) {
   if (!parsed) return React.createElement('div', { className: 'video-error' }, 'Invalid video URL');
 
   if (parsed.type === 'youtube') {
+    return React.createElement('div', { className: 'video-frame', style: { position: 'relative' } },
+      React.createElement(YouTubePlayer, {
+        videoId: parsed.id,
+        playbackState: playbackState,
+        playbackTime: playbackTime,
+        onStateChange: onStateChange,
+        isLocalChange: isLocalChange
+      })
+    );
+  }
+  
+  if (parsed.type === 'vimeo') {
     return React.createElement('iframe', { 
-      key: video.url,
-      src: 'https://www.youtube.com/embed/' + parsed.id + '?autoplay=1&rel=0', 
-      allow: 'autoplay; encrypted-media', 
+      key: video.url, 
+      src: 'https://player.vimeo.com/video/' + parsed.id + '?autoplay=1', 
+      allow: 'autoplay; fullscreen', 
       allowFullScreen: true, 
       className: 'video-frame' 
     });
   }
-  if (parsed.type === 'vimeo') {
-    return React.createElement('iframe', { key: video.url, src: 'https://player.vimeo.com/video/' + parsed.id + '?autoplay=1', allow: 'autoplay; fullscreen', allowFullScreen: true, className: 'video-frame' });
-  }
-  if (parsed.type === 'spotify') {
-    return React.createElement('iframe', { key: video.url, src: 'https://open.spotify.com/embed/' + parsed.contentType + '/' + parsed.id + '?theme=0', allow: 'autoplay; encrypted-media', className: 'video-frame', style: { minHeight: '152px' } });
-  }
-  if (parsed.type === 'soundcloud') {
-    return React.createElement('iframe', { key: video.url, src: 'https://w.soundcloud.com/player/?url=' + encodeURIComponent(parsed.url) + '&auto_play=true', className: 'video-frame', style: { minHeight: '166px' } });
-  }
+  
   if (parsed.type === 'direct') {
     if (video.url.match(/\.(mp3|wav|m4a)$/i)) {
       return React.createElement('div', { className: 'video-placeholder' },
         React.createElement('div', { style: { fontSize: '48px' } }, '🎵'),
         React.createElement('p', null, video.title),
-        React.createElement('audio', { key: video.url, src: video.url, controls: true, autoPlay: true, onEnded: onEnded, style: { width: '80%', maxWidth: '400px' } })
+        React.createElement('audio', { 
+          ref: videoRef,
+          key: video.url, 
+          src: video.url, 
+          controls: true, 
+          autoPlay: playbackState === 'playing', 
+          onEnded: onEnded, 
+          style: { width: '80%', maxWidth: '400px' } 
+        })
       );
     }
-    return React.createElement('video', { key: video.url, src: video.url, controls: true, autoPlay: true, onEnded: onEnded, className: 'video-frame' });
+    return React.createElement('video', { 
+      ref: videoRef,
+      key: video.url, 
+      src: video.url, 
+      controls: true, 
+      autoPlay: playbackState === 'playing', 
+      onEnded: onEnded, 
+      className: 'video-frame' 
+    });
   }
+  
   return React.createElement('div', { className: 'video-error' }, 'Unsupported format');
 }
 
@@ -495,7 +709,7 @@ function DraggableVideoList(props) {
 }
 
 // ============================================
-// Draggable Playlist Panel
+// Playlist Panel (Draggable)
 // ============================================
 function PlaylistPanel(props) {
   var playlists = props.playlists;
@@ -544,14 +758,8 @@ function PlaylistPanel(props) {
     setEditName('');
   }
 
-  function startEdit(playlist) {
-    setEditingId(playlist.id);
-    setEditName(playlist.name);
-  }
-
   function handleDragStart(e, index) {
     setDragItem(index);
-    e.dataTransfer.effectAllowed = 'move';
   }
 
   function handleDragOver(e, index) {
@@ -567,19 +775,10 @@ function PlaylistPanel(props) {
       setDragOver(null);
       return;
     }
-    
     var newPlaylists = playlists.slice();
     var item = newPlaylists.splice(dragItem, 1)[0];
     newPlaylists.splice(index, 0, item);
-    
-    if (onReorder) {
-      onReorder(newPlaylists.map(function(p) { return p.id; }));
-    }
-    setDragItem(null);
-    setDragOver(null);
-  }
-
-  function handleDragEnd() {
+    if (onReorder) onReorder(newPlaylists.map(function(p) { return p.id; }));
     setDragItem(null);
     setDragOver(null);
   }
@@ -592,13 +791,7 @@ function PlaylistPanel(props) {
       )
     ),
     showCreate && React.createElement('div', { className: 'create-playlist-form' },
-      React.createElement('input', { 
-        value: newName, 
-        onChange: function(e) { setNewName(e.target.value); }, 
-        placeholder: 'Playlist name', 
-        autoFocus: true,
-        onKeyDown: function(e) { if (e.key === 'Enter') handleCreate(); if (e.key === 'Escape') setShowCreate(false); }
-      }),
+      React.createElement('input', { value: newName, onChange: function(e) { setNewName(e.target.value); }, placeholder: 'Playlist name', autoFocus: true, onKeyDown: function(e) { if (e.key === 'Enter') handleCreate(); if (e.key === 'Escape') setShowCreate(false); } }),
       React.createElement('div', { className: 'form-actions' },
         React.createElement('button', { className: 'btn primary sm', onClick: handleCreate }, 'Create'),
         React.createElement('button', { className: 'btn sm', onClick: function() { setShowCreate(false); } }, 'Cancel')
@@ -620,32 +813,18 @@ function PlaylistPanel(props) {
               onDragStart: function(e) { handleDragStart(e, i); },
               onDragOver: function(e) { handleDragOver(e, i); },
               onDrop: function(e) { handleDrop(e, i); },
-              onDragEnd: handleDragEnd
+              onDragEnd: function() { setDragItem(null); setDragOver(null); }
             },
               React.createElement('div', { className: 'drag-handle' }, React.createElement(Icon, { name: 'grip', size: 'sm' })),
               isEditing 
-                ? React.createElement('input', {
-                    className: 'playlist-edit-input',
-                    value: editName,
-                    onChange: function(e) { setEditName(e.target.value); },
-                    onBlur: function() { handleRename(p.id); },
-                    onKeyDown: function(e) { 
-                      if (e.key === 'Enter') handleRename(p.id); 
-                      if (e.key === 'Escape') { setEditingId(null); setEditName(''); }
-                    },
-                    autoFocus: true
-                  })
+                ? React.createElement('input', { className: 'playlist-edit-input', value: editName, onChange: function(e) { setEditName(e.target.value); }, onBlur: function() { handleRename(p.id); }, onKeyDown: function(e) { if (e.key === 'Enter') handleRename(p.id); if (e.key === 'Escape') { setEditingId(null); setEditName(''); } }, autoFocus: true })
                 : React.createElement('button', { className: 'playlist-select', onClick: function() { onSelect(p); } },
                     React.createElement('span', { className: 'playlist-name' }, p.name),
                     React.createElement('span', { className: 'playlist-count' }, (p.videos || []).length)
                   ),
               React.createElement('div', { className: 'playlist-actions' },
-                React.createElement('button', { className: 'icon-btn sm', onClick: function(e) { e.stopPropagation(); startEdit(p); }, title: 'Rename' },
-                  React.createElement(Icon, { name: 'edit', size: 'sm' })
-                ),
-                React.createElement('button', { className: 'icon-btn sm danger', onClick: function(e) { e.stopPropagation(); onDelete(p.id); }, title: 'Delete' },
-                  React.createElement(Icon, { name: 'trash', size: 'sm' })
-                )
+                React.createElement('button', { className: 'icon-btn sm', onClick: function(e) { e.stopPropagation(); setEditingId(p.id); setEditName(p.name); }, title: 'Rename' }, React.createElement(Icon, { name: 'edit', size: 'sm' })),
+                React.createElement('button', { className: 'icon-btn sm danger', onClick: function(e) { e.stopPropagation(); onDelete(p.id); }, title: 'Delete' }, React.createElement(Icon, { name: 'trash', size: 'sm' }))
               )
             );
           })
@@ -654,7 +833,7 @@ function PlaylistPanel(props) {
 }
 
 // ============================================
-// User Menu Dropdown
+// User Menu
 // ============================================
 function UserMenu(props) {
   var user = props.user;
@@ -687,16 +866,10 @@ function UserMenu(props) {
         React.createElement('div', { className: 'name' }, user.displayName),
         React.createElement('div', { className: 'email' }, user.email)
       ),
-      onHome && React.createElement('button', { className: 'dropdown-item', onClick: function() { onHome(); setOpen(false); } },
-        React.createElement(Icon, { name: 'home', size: 'sm' }), ' My Rooms'
-      ),
-      React.createElement('button', { className: 'dropdown-item', onClick: function() { onSettings(); setOpen(false); } },
-        React.createElement(Icon, { name: 'settings', size: 'sm' }), ' Settings'
-      ),
+      onHome && React.createElement('button', { className: 'dropdown-item', onClick: function() { onHome(); setOpen(false); } }, React.createElement(Icon, { name: 'home', size: 'sm' }), ' My Rooms'),
+      React.createElement('button', { className: 'dropdown-item', onClick: function() { onSettings(); setOpen(false); } }, React.createElement(Icon, { name: 'settings', size: 'sm' }), ' Settings'),
       React.createElement('div', { className: 'dropdown-divider' }),
-      React.createElement('button', { className: 'dropdown-item danger', onClick: onLogout },
-        React.createElement(Icon, { name: 'logout', size: 'sm' }), ' Log out'
-      )
+      React.createElement('button', { className: 'dropdown-item danger', onClick: onLogout }, React.createElement(Icon, { name: 'logout', size: 'sm' }), ' Log out')
     )
   );
 }
@@ -726,38 +899,28 @@ function SettingsModal(props) {
   var loading = _loading[0];
   var setLoading = _loading[1];
 
-  function showMsg(text, type) {
-    setMessage({ text: text, type: type || 'success' });
-    setTimeout(function() { setMessage(null); }, 3000);
-  }
-
   function handleSaveProfile() {
     if (!displayName.trim()) return;
     onUpdate(Object.assign({}, user, { displayName: displayName.trim() }));
-    showMsg('Profile updated!');
+    setMessage({ text: 'Saved!', type: 'success' });
+    setTimeout(function() { setMessage(null); }, 2000);
   }
 
   function handleDeleteAccount() {
-    if (!confirm('Are you sure you want to delete your account? This cannot be undone.')) return;
-    if (!confirm('Really delete? All your rooms and data will be lost forever.')) return;
+    if (!confirm('Delete your account? This cannot be undone.')) return;
     setLoading(true);
-    api.auth.deleteAccount()
-      .then(function() { onLogout(); })
-      .catch(function(err) { showMsg('Failed: ' + err.message, 'error'); setLoading(false); });
+    api.auth.deleteAccount().then(onLogout).catch(function(err) { setMessage({ text: err.message, type: 'error' }); setLoading(false); });
   }
 
   return React.createElement('div', { className: 'modal-overlay', onClick: onClose },
     React.createElement('div', { className: 'modal settings-modal', onClick: function(e) { e.stopPropagation(); } },
       React.createElement('button', { className: 'modal-close', onClick: onClose }, '×'),
       React.createElement('h2', null, 'Settings'),
-      
       React.createElement('div', { className: 'settings-tabs' },
         React.createElement('button', { className: 'settings-tab' + (tab === 'profile' ? ' active' : ''), onClick: function() { setTab('profile'); } }, 'Profile'),
         React.createElement('button', { className: 'settings-tab' + (tab === 'danger' ? ' active' : ''), onClick: function() { setTab('danger'); } }, 'Account')
       ),
-      
       message && React.createElement('div', { className: message.type === 'error' ? 'error-message' : 'success-message' }, message.text),
-      
       tab === 'profile' && React.createElement('div', { className: 'settings-content' },
         React.createElement('div', { className: 'modal-input-group' },
           React.createElement('label', null, 'Display Name'),
@@ -767,13 +930,12 @@ function SettingsModal(props) {
           React.createElement('label', null, 'Email'),
           React.createElement('input', { type: 'email', value: user.email, disabled: true })
         ),
-        React.createElement('button', { className: 'btn primary', onClick: handleSaveProfile, disabled: loading }, 'Save Changes')
+        React.createElement('button', { className: 'btn primary', onClick: handleSaveProfile }, 'Save Changes')
       ),
-      
       tab === 'danger' && React.createElement('div', { className: 'settings-content' },
         React.createElement('div', { className: 'danger-zone' },
           React.createElement('h3', null, '⚠️ Danger Zone'),
-          React.createElement('p', null, 'Deleting your account will permanently remove all your rooms, playlists, and data.'),
+          React.createElement('p', null, 'Deleting your account will permanently remove all your data.'),
           React.createElement('button', { className: 'btn danger', onClick: handleDeleteAccount, disabled: loading }, loading ? 'Deleting...' : 'Delete My Account')
         )
       )
@@ -785,36 +947,21 @@ function SettingsModal(props) {
 // Guest Join Modal
 // ============================================
 function GuestJoinModal(props) {
-  var onJoin = props.onJoin;
-  var onLogin = props.onLogin;
-  
   var _name = useState('');
   var name = _name[0];
   var setName = _name[1];
-
-  function handleJoin() {
-    var displayName = name.trim() || 'Guest';
-    onJoin(displayName);
-  }
 
   return React.createElement('div', { className: 'modal-overlay' },
     React.createElement('div', { className: 'modal guest-modal' },
       React.createElement('div', { className: 'guest-modal-icon' }, '🐉'),
       React.createElement('h2', null, 'Join Room'),
-      React.createElement('p', null, 'Enter a display name to join as a guest'),
+      React.createElement('p', null, 'Enter a display name to join'),
       React.createElement('div', { className: 'modal-input-group' },
-        React.createElement('input', { 
-          type: 'text', 
-          value: name, 
-          onChange: function(e) { setName(e.target.value); },
-          placeholder: 'Your name',
-          autoFocus: true,
-          onKeyDown: function(e) { if (e.key === 'Enter') handleJoin(); }
-        })
+        React.createElement('input', { type: 'text', value: name, onChange: function(e) { setName(e.target.value); }, placeholder: 'Your name', autoFocus: true, onKeyDown: function(e) { if (e.key === 'Enter') props.onJoin(name.trim() || 'Guest'); } })
       ),
-      React.createElement('button', { className: 'btn primary', onClick: handleJoin }, 'Join as Guest'),
+      React.createElement('button', { className: 'btn primary', onClick: function() { props.onJoin(name.trim() || 'Guest'); } }, 'Join as Guest'),
       React.createElement('div', { className: 'guest-modal-divider' }, React.createElement('span', null, 'or')),
-      React.createElement('button', { className: 'btn secondary', onClick: onLogin }, 'Sign in / Create Account')
+      React.createElement('button', { className: 'btn secondary', onClick: props.onLogin }, 'Sign in / Create Account')
     )
   );
 }
@@ -823,8 +970,6 @@ function GuestJoinModal(props) {
 // Auth Screen
 // ============================================
 function AuthScreen(props) {
-  var onAuth = props.onAuth;
-  
   var _mode = useState('login');
   var mode = _mode[0];
   var setMode = _mode[1];
@@ -855,35 +1000,19 @@ function AuthScreen(props) {
 
   useEffect(function() {
     if (GOOGLE_CLIENT_ID && window.google) {
-      window.google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleResponse });
+      window.google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: function(response) {
+        setLoading(true);
+        api.auth.googleLogin(response.credential).then(props.onAuth).catch(function(err) { setError(err.message); }).finally(function() { setLoading(false); });
+      } });
     }
   }, []);
-
-  function handleGoogleResponse(response) {
-    setLoading(true);
-    setError('');
-    api.auth.googleLogin(response.credential)
-      .then(onAuth)
-      .catch(function(err) { setError(err.message); })
-      .finally(function() { setLoading(false); });
-  }
 
   function handleSubmit(e) {
     e.preventDefault();
     setError('');
     setLoading(true);
-    var promise = mode === 'register' 
-      ? api.auth.register(email, username || null, password, displayName)
-      : api.auth.login(email, password);
-    promise
-      .then(onAuth)
-      .catch(function(err) { setError(err.message); })
-      .finally(function() { setLoading(false); });
-  }
-
-  function handleGoogleClick() {
-    if (window.google) window.google.accounts.id.prompt();
-    else setError('Google sign-in not available');
+    var promise = mode === 'register' ? api.auth.register(email, username || null, password, displayName) : api.auth.login(email, password);
+    promise.then(props.onAuth).catch(function(err) { setError(err.message); }).finally(function() { setLoading(false); });
   }
 
   return React.createElement('div', { className: 'auth-screen' },
@@ -900,7 +1029,7 @@ function AuthScreen(props) {
         React.createElement('form', { onSubmit: handleSubmit },
           mode === 'register' && React.createElement('div', { className: 'input-group' },
             React.createElement('label', null, 'Display Name'),
-            React.createElement('input', { type: 'text', value: displayName, onChange: function(e) { setDisplayName(e.target.value); }, placeholder: 'Your name', required: true })
+            React.createElement('input', { type: 'text', value: displayName, onChange: function(e) { setDisplayName(e.target.value); }, required: true })
           ),
           React.createElement('div', { className: 'input-group' },
             React.createElement('label', null, mode === 'register' ? 'Email' : 'Email or Username'),
@@ -917,7 +1046,7 @@ function AuthScreen(props) {
           React.createElement('button', { type: 'submit', className: 'auth-submit', disabled: loading }, loading ? 'Please wait...' : (mode === 'login' ? 'Sign in' : 'Create account'))
         ),
         React.createElement('div', { className: 'auth-divider' }, React.createElement('span', null, 'or')),
-        React.createElement('button', { type: 'button', className: 'google-btn', onClick: handleGoogleClick },
+        React.createElement('button', { type: 'button', className: 'google-btn', onClick: function() { if (window.google) window.google.accounts.id.prompt(); } },
           React.createElement('svg', { viewBox: '0 0 24 24', width: 18, height: 18 },
             React.createElement('path', { fill: '#4285F4', d: 'M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z' }),
             React.createElement('path', { fill: '#34A853', d: 'M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z' }),
@@ -928,14 +1057,8 @@ function AuthScreen(props) {
         ),
         React.createElement('div', { className: 'auth-links' },
           mode === 'login' 
-            ? React.createElement(React.Fragment, null,
-                React.createElement('span', null, 'New here? '),
-                React.createElement('button', { type: 'button', onClick: function() { setMode('register'); setError(''); } }, 'Create account')
-              )
-            : React.createElement(React.Fragment, null,
-                React.createElement('span', null, 'Have an account? '),
-                React.createElement('button', { type: 'button', onClick: function() { setMode('login'); setError(''); } }, 'Sign in')
-              )
+            ? React.createElement(React.Fragment, null, React.createElement('span', null, 'New here? '), React.createElement('button', { type: 'button', onClick: function() { setMode('register'); setError(''); } }, 'Create account'))
+            : React.createElement(React.Fragment, null, React.createElement('span', null, 'Have an account? '), React.createElement('button', { type: 'button', onClick: function() { setMode('login'); setError(''); } }, 'Sign in'))
         )
       )
     )
@@ -947,9 +1070,6 @@ function AuthScreen(props) {
 // ============================================
 function HomePage(props) {
   var user = props.user;
-  var onEnterRoom = props.onEnterRoom;
-  var onLogout = props.onLogout;
-  var onUpdateUser = props.onUpdateUser;
   
   var _rooms = useState([]);
   var rooms = _rooms[0];
@@ -982,26 +1102,15 @@ function HomePage(props) {
   var _loading = useState(true);
   var loading = _loading[0];
   var setLoading = _loading[1];
-  
-  var _error = useState(null);
-  var error = _error[0];
-  var setError = _error[1];
 
   useEffect(function() { loadRooms(); }, []);
 
   function loadRooms() {
     setLoading(true);
-    setError(null);
-    api.rooms.list()
-      .then(function(r) {
-        if (!r || r.length === 0) {
-          return api.rooms.create('My Room').then(function(room) { return [room]; });
-        }
-        return r;
-      })
-      .then(setRooms)
-      .catch(function(err) { setError('Failed to load rooms: ' + err.message); })
-      .finally(function() { setLoading(false); });
+    api.rooms.list().then(function(r) {
+      if (!r || r.length === 0) return api.rooms.create('My Room').then(function(room) { return [room]; });
+      return r;
+    }).then(setRooms).finally(function() { setLoading(false); });
   }
 
   function showNotif(msg, type) {
@@ -1016,7 +1125,7 @@ function HomePage(props) {
       setNewRoomName('');
       setShowCreate(false);
       showNotif('Room created!');
-    }).catch(function(err) { showNotif('Failed: ' + err.message, 'error'); });
+    });
   }
 
   function renameRoom(roomId) {
@@ -1025,7 +1134,7 @@ function HomePage(props) {
       setRooms(rooms.map(function(r) { return r.id === roomId ? Object.assign({}, r, { name: editName.trim() }) : r; }));
       setEditingRoom(null);
       showNotif('Renamed!');
-    }).catch(function(err) { showNotif('Failed: ' + err.message, 'error'); });
+    });
   }
 
   function deleteRoom(roomId) {
@@ -1033,7 +1142,7 @@ function HomePage(props) {
     api.rooms.delete(roomId).then(function() {
       setRooms(rooms.filter(function(r) { return r.id !== roomId; }));
       showNotif('Deleted!', 'warning');
-    }).catch(function(err) { showNotif('Failed: ' + err.message, 'error'); });
+    });
   }
 
   function copyShareLink(roomId) {
@@ -1046,18 +1155,7 @@ function HomePage(props) {
       React.createElement(DragonFire, null),
       React.createElement('div', { className: 'loading-screen' },
         React.createElement('div', { className: 'loading-dragon' }, '🐉'),
-        React.createElement('div', { className: 'loading-text' }, 'Loading rooms...')
-      )
-    );
-  }
-
-  if (error) {
-    return React.createElement('div', { className: 'home-page' },
-      React.createElement(DragonFire, null),
-      React.createElement('div', { className: 'loading-screen' },
-        React.createElement('div', { className: 'loading-dragon' }, '❌'),
-        React.createElement('div', { className: 'loading-text' }, error),
-        React.createElement('button', { className: 'btn primary', onClick: loadRooms, style: { marginTop: '20px' } }, 'Retry')
+        React.createElement('div', { className: 'loading-text' }, 'Loading...')
       )
     );
   }
@@ -1065,11 +1163,8 @@ function HomePage(props) {
   return React.createElement('div', { className: 'home-page' },
     React.createElement(DragonFire, null),
     React.createElement('header', { className: 'home-header' },
-      React.createElement('div', { className: 'logo-small' },
-        React.createElement('span', { className: 'dragon-icon' }, '🐉'),
-        React.createElement('span', null, 'Multiview')
-      ),
-      React.createElement(UserMenu, { user: user, onSettings: function() { setSettingsOpen(true); }, onLogout: onLogout })
+      React.createElement('div', { className: 'logo-small' }, React.createElement('span', { className: 'dragon-icon' }, '🐉'), React.createElement('span', null, 'Multiview')),
+      React.createElement(UserMenu, { user: user, onSettings: function() { setSettingsOpen(true); }, onLogout: props.onLogout })
     ),
     React.createElement('main', { className: 'home-content' },
       React.createElement('div', { className: 'home-welcome' },
@@ -1094,7 +1189,7 @@ function HomePage(props) {
                   ? React.createElement('input', { type: 'text', value: editName, onChange: function(e) { setEditName(e.target.value); }, onBlur: function() { renameRoom(room.id); }, onKeyDown: function(e) { if (e.key === 'Enter') renameRoom(room.id); if (e.key === 'Escape') setEditingRoom(null); }, autoFocus: true, className: 'room-edit-input' })
                   : React.createElement('h3', null, room.name),
                 React.createElement('div', { className: 'room-card-actions' },
-                  React.createElement('button', { className: 'btn primary', onClick: function() { onEnterRoom(room); } }, React.createElement(Icon, { name: 'enter', size: 'sm' }), ' Enter'),
+                  React.createElement('button', { className: 'btn primary', onClick: function() { props.onEnterRoom(room); } }, React.createElement(Icon, { name: 'enter', size: 'sm' }), ' Enter'),
                   React.createElement('button', { className: 'icon-btn', onClick: function() { copyShareLink(room.id); }, title: 'Share' }, React.createElement(Icon, { name: 'share', size: 'sm' })),
                   React.createElement('button', { className: 'icon-btn', onClick: function() { setEditingRoom(room.id); setEditName(room.name); }, title: 'Rename' }, React.createElement(Icon, { name: 'edit', size: 'sm' })),
                   React.createElement('button', { className: 'icon-btn danger', onClick: function() { deleteRoom(room.id); }, title: 'Delete' }, React.createElement(Icon, { name: 'trash', size: 'sm' }))
@@ -1105,22 +1200,19 @@ function HomePage(props) {
         )
       )
     ),
-    settingsOpen && React.createElement(SettingsModal, { user: user, onClose: function() { setSettingsOpen(false); }, onUpdate: onUpdateUser, onLogout: onLogout }),
+    settingsOpen && React.createElement(SettingsModal, { user: user, onClose: function() { setSettingsOpen(false); }, onUpdate: props.onUpdateUser, onLogout: props.onLogout }),
     notification && React.createElement('div', { className: 'notification ' + notification.type }, notification.message)
   );
 }
 
 // ============================================
-// Room Component
+// Room Component with Synchronized Playback
 // ============================================
 function Room(props) {
   var user = props.user;
   var room = props.room;
   var hostId = props.hostId;
   var guestDisplayName = props.guestDisplayName;
-  var onHome = props.onHome;
-  var onLogout = props.onLogout;
-  var onUpdateUser = props.onUpdateUser;
   
   var _playlists = useState([]);
   var playlists = _playlists[0];
@@ -1137,6 +1229,14 @@ function Room(props) {
   var _currentIndex = useState(-1);
   var currentIndex = _currentIndex[0];
   var setCurrentIndex = _currentIndex[1];
+  
+  var _playbackState = useState('paused');
+  var playbackState = _playbackState[0];
+  var setPlaybackState = _playbackState[1];
+  
+  var _playbackTime = useState(0);
+  var playbackTime = _playbackTime[0];
+  var setPlaybackTime = _playbackTime[1];
   
   var _urlInput = useState('');
   var urlInput = _urlInput[0];
@@ -1165,7 +1265,7 @@ function Room(props) {
   var fileInputRef = useRef(null);
   var syncInterval = useRef(null);
   var lastSyncTime = useRef(null);
-  var localChange = useRef(false);
+  var isLocalChange = useRef(false);
 
   var visitorId = user ? user.id : api.getGuestId();
   var isOwner = user && user.id === hostId;
@@ -1173,11 +1273,7 @@ function Room(props) {
 
   function syncRoomState() {
     api.rooms.getSync(room.id).then(function(data) {
-      console.log('Sync data:', data);
-      
-      if (data.members) {
-        setConnectedUsers(data.members);
-      }
+      if (data.members) setConnectedUsers(data.members);
       
       if (data.playlists) {
         setPlaylists(data.playlists);
@@ -1189,42 +1285,47 @@ function Room(props) {
         }
       }
       
-      // Sync video from server
-      if (data.room && !localChange.current) {
+      // Sync video and playback state
+      if (data.room && !isLocalChange.current) {
         var serverTime = data.room.playbackUpdatedAt ? new Date(data.room.playbackUpdatedAt).getTime() : 0;
         var shouldSync = !lastSyncTime.current || serverTime > lastSyncTime.current;
         
-        if (shouldSync && data.room.currentVideoUrl) {
-          var serverVideo = { 
-            id: 'synced_' + serverTime, 
-            title: data.room.currentVideoTitle || data.room.currentVideoUrl, 
-            url: data.room.currentVideoUrl 
-          };
+        if (shouldSync) {
+          lastSyncTime.current = serverTime;
           
-          // Only update if URL changed
-          if (!currentVideo || currentVideo.url !== serverVideo.url) {
-            console.log('Syncing video:', serverVideo);
-            setCurrentVideo(serverVideo);
+          if (data.room.currentVideoUrl) {
+            var serverVideo = { 
+              id: 'synced_' + serverTime, 
+              title: data.room.currentVideoTitle || data.room.currentVideoUrl, 
+              url: data.room.currentVideoUrl 
+            };
+            
+            if (!currentVideo || currentVideo.url !== serverVideo.url) {
+              console.log('Syncing video:', serverVideo.url);
+              setCurrentVideo(serverVideo);
+            }
+            
+            // Sync playback state
+            var serverState = data.room.playbackState || 'paused';
+            var serverPlaybackTime = data.room.playbackTime || 0;
+            
+            console.log('Server state:', serverState, 'at', serverPlaybackTime);
+            setPlaybackState(serverState);
+            setPlaybackTime(serverPlaybackTime);
+          } else if (currentVideo) {
+            setCurrentVideo(null);
+            setPlaybackState('paused');
+            setPlaybackTime(0);
           }
-          lastSyncTime.current = serverTime;
-        } else if (shouldSync && !data.room.currentVideoUrl && currentVideo && currentVideo.id && currentVideo.id.startsWith('synced_')) {
-          setCurrentVideo(null);
-          lastSyncTime.current = serverTime;
         }
       }
       
-      localChange.current = false;
-    }).catch(function(err) {
-      console.error('Sync error:', err);
-    });
+      isLocalChange.current = false;
+    }).catch(console.error);
   }
 
   useEffect(function() {
-    console.log('Joining room:', room.id);
-    api.rooms.join(room.id, displayName).then(function() {
-      console.log('Joined room, starting sync');
-      syncRoomState();
-    }).catch(console.error);
+    api.rooms.join(room.id, displayName).then(syncRoomState).catch(console.error);
     
     syncInterval.current = setInterval(function() {
       api.presence.heartbeat(room.id, 'online').catch(console.error);
@@ -1242,20 +1343,61 @@ function Room(props) {
     setTimeout(function() { setNotification(null); }, 3000);
   }
 
-  function broadcastVideo(video) {
-    console.log('Broadcasting video:', video);
-    localChange.current = true;
+  function broadcastState(video, state, time) {
+    console.log('Broadcasting:', video ? video.url : null, state, time);
+    isLocalChange.current = true;
     lastSyncTime.current = Date.now();
     
     api.rooms.updateSync(room.id, {
       currentVideoUrl: video ? video.url : null,
       currentVideoTitle: video ? (video.title || video.url) : null,
-      currentPlaylistId: activePlaylist ? activePlaylist.id : null
-    }).then(function() {
-      console.log('Broadcast success');
-    }).catch(function(err) {
-      console.error('Broadcast error:', err);
-    });
+      currentPlaylistId: activePlaylist ? activePlaylist.id : null,
+      playbackState: state || 'paused',
+      playbackTime: time || 0
+    }).catch(console.error);
+  }
+
+  function handlePlayerStateChange(state, time) {
+    console.log('Local state change:', state, time);
+    setPlaybackState(state);
+    setPlaybackTime(time);
+    broadcastState(currentVideo, state, time);
+  }
+
+  function playVideo(video, index) {
+    console.log('Playing video:', video.title || video.url);
+    setCurrentVideo(video);
+    setCurrentIndex(index);
+    setPlaybackState('playing');
+    setPlaybackTime(0);
+    broadcastState(video, 'playing', 0);
+  }
+
+  function playNow() {
+    if (!urlInput.trim()) return;
+    var parsed = parseVideoUrl(urlInput.trim());
+    if (!parsed) { showNotif('Invalid URL', 'error'); return; }
+    var video = { id: 'direct_' + Date.now(), title: urlInput, url: urlInput.trim() };
+    setCurrentVideo(video);
+    setPlaybackState('playing');
+    setPlaybackTime(0);
+    broadcastState(video, 'playing', 0);
+    setUrlInput('');
+  }
+
+  function playPrev() {
+    if (!activePlaylist || currentIndex <= 0) return;
+    var videos = activePlaylist.videos || [];
+    var video = videos[currentIndex - 1];
+    playVideo(video, currentIndex - 1);
+  }
+
+  function playNext() {
+    if (!activePlaylist) return;
+    var videos = activePlaylist.videos || [];
+    if (currentIndex < videos.length - 1) {
+      playVideo(videos[currentIndex + 1], currentIndex + 1);
+    }
   }
 
   function handleCreatePlaylist(name) {
@@ -1263,8 +1405,8 @@ function Room(props) {
       var newPl = Object.assign({}, p, { videos: [] });
       setPlaylists(playlists.concat([newPl]));
       setActivePlaylist(newPl);
-      showNotif('Playlist created!');
-    }).catch(function(err) { showNotif('Failed: ' + err.message, 'error'); });
+      showNotif('Created!');
+    }).catch(function(err) { showNotif(err.message, 'error'); });
   }
 
   function handleDeletePlaylist(id) {
@@ -1273,23 +1415,19 @@ function Room(props) {
       setPlaylists(playlists.filter(function(p) { return p.id !== id; }));
       if (activePlaylist && activePlaylist.id === id) { setActivePlaylist(null); setCurrentVideo(null); }
       showNotif('Deleted!', 'warning');
-    }).catch(function(err) { showNotif('Failed: ' + err.message, 'error'); });
+    });
   }
 
   function handleRenamePlaylist(id, name) {
     api.playlists.update(id, { name: name }).then(function() {
       setPlaylists(playlists.map(function(p) { return p.id === id ? Object.assign({}, p, { name: name }) : p; }));
-      if (activePlaylist && activePlaylist.id === id) {
-        setActivePlaylist(Object.assign({}, activePlaylist, { name: name }));
-      }
+      if (activePlaylist && activePlaylist.id === id) setActivePlaylist(Object.assign({}, activePlaylist, { name: name }));
       showNotif('Renamed!');
-    }).catch(function(err) { showNotif('Failed: ' + err.message, 'error'); });
+    });
   }
 
-  function handleReorderPlaylists(playlistIds) {
-    api.playlists.reorder(room.id, playlistIds).catch(function(err) {
-      console.error('Reorder failed:', err);
-    });
+  function handleReorderPlaylists(ids) {
+    api.playlists.reorder(room.id, ids).catch(console.error);
   }
 
   function handleAddUrl() {
@@ -1303,44 +1441,7 @@ function Room(props) {
       setActivePlaylist(updated);
       setUrlInput('');
       showNotif('Added!');
-    }).catch(function(err) { showNotif('Failed: ' + err.message, 'error'); });
-  }
-
-  function playVideo(video, index) {
-    console.log('Playing video:', video, 'at index:', index);
-    setCurrentVideo(video);
-    setCurrentIndex(index);
-    broadcastVideo(video);
-  }
-
-  function playNow() {
-    if (!urlInput.trim()) return;
-    var parsed = parseVideoUrl(urlInput.trim());
-    if (!parsed) { showNotif('Invalid URL', 'error'); return; }
-    var video = { id: 'direct_' + Date.now(), title: urlInput, url: urlInput.trim() };
-    setCurrentVideo(video);
-    broadcastVideo(video);
-    setUrlInput('');
-  }
-
-  function playPrev() {
-    if (!activePlaylist || currentIndex <= 0) return;
-    var videos = activePlaylist.videos || [];
-    var video = videos[currentIndex - 1];
-    setCurrentVideo(video);
-    setCurrentIndex(currentIndex - 1);
-    broadcastVideo(video);
-  }
-
-  function playNext() {
-    if (!activePlaylist) return;
-    var videos = activePlaylist.videos || [];
-    if (currentIndex < videos.length - 1) {
-      var video = videos[currentIndex + 1];
-      setCurrentVideo(video);
-      setCurrentIndex(currentIndex + 1);
-      broadcastVideo(video);
-    }
+    });
   }
 
   function removeVideo(videoId) {
@@ -1352,20 +1453,18 @@ function Room(props) {
       setActivePlaylist(updated);
       if (currentVideo && currentVideo.id === videoId) setCurrentVideo(null);
       showNotif('Removed!');
-    }).catch(function(err) { showNotif('Failed: ' + err.message, 'error'); });
+    });
   }
 
   function renameVideo(videoId, title) {
     if (!activePlaylist) return;
     api.playlists.updateVideo(activePlaylist.id, videoId, { title: title }).then(function() {
-      var newVideos = (activePlaylist.videos || []).map(function(v) {
-        return v.id === videoId ? Object.assign({}, v, { title: title }) : v;
-      });
+      var newVideos = (activePlaylist.videos || []).map(function(v) { return v.id === videoId ? Object.assign({}, v, { title: title }) : v; });
       var updated = Object.assign({}, activePlaylist, { videos: newVideos });
       setPlaylists(playlists.map(function(p) { return p.id === activePlaylist.id ? updated : p; }));
       setActivePlaylist(updated);
       showNotif('Renamed!');
-    }).catch(function(err) { showNotif('Failed: ' + err.message, 'error'); });
+    });
   }
 
   function reorderVideos(videoIds) {
@@ -1377,7 +1476,7 @@ function Room(props) {
       var updated = Object.assign({}, activePlaylist, { videos: newVideos });
       setPlaylists(playlists.map(function(p) { return p.id === activePlaylist.id ? updated : p; }));
       setActivePlaylist(updated);
-    }).catch(function(err) { showNotif('Failed to reorder: ' + err.message, 'error'); });
+    });
   }
 
   function copyShareLink() {
@@ -1390,24 +1489,20 @@ function Room(props) {
     api.rooms.kick(room.id, visitorId, guestId).then(function() {
       setConnectedUsers(connectedUsers.filter(function(u) { return u.visitorId !== visitorId && u.guestId !== guestId; }));
       showNotif('Kicked!');
-    }).catch(function(err) { showNotif('Failed: ' + err.message, 'error'); });
+    });
   }
 
   function handleRenameUser(visitorId, guestId, name) {
     api.presence.updateMember(room.id, visitorId, guestId, { displayName: name }).then(function() {
-      setConnectedUsers(connectedUsers.map(function(u) { 
-        return (u.visitorId === visitorId || u.guestId === guestId) ? Object.assign({}, u, { displayName: name }) : u; 
-      }));
+      setConnectedUsers(connectedUsers.map(function(u) { return (u.visitorId === visitorId || u.guestId === guestId) ? Object.assign({}, u, { displayName: name }) : u; }));
       showNotif('Renamed!');
-    }).catch(console.error);
+    });
   }
 
   function handleColorChange(visitorId, guestId, color) {
     api.presence.updateMember(room.id, visitorId, guestId, { color: color }).then(function() {
-      setConnectedUsers(connectedUsers.map(function(u) { 
-        return (u.visitorId === visitorId || u.guestId === guestId) ? Object.assign({}, u, { color: color }) : u; 
-      }));
-    }).catch(console.error);
+      setConnectedUsers(connectedUsers.map(function(u) { return (u.visitorId === visitorId || u.guestId === guestId) ? Object.assign({}, u, { color: color }) : u; }));
+    });
   }
 
   function handleFileUpload(e) {
@@ -1416,8 +1511,7 @@ function Room(props) {
       var url = URL.createObjectURL(file);
       var title = file.name.replace(/\.[^/.]+$/, '');
       var video = { id: 'local_' + Date.now(), title: title, url: url };
-      setCurrentVideo(video);
-      broadcastVideo(video);
+      playVideo(video, -1);
     });
     e.target.value = '';
   }
@@ -1429,7 +1523,7 @@ function Room(props) {
     React.createElement('header', { className: 'dashboard-header' },
       React.createElement('div', { className: 'header-left' },
         React.createElement('button', { className: 'icon-btn', onClick: function() { setSidebarOpen(!sidebarOpen); } }, React.createElement(Icon, { name: 'menu' })),
-        onHome && React.createElement('button', { className: 'icon-btn', onClick: onHome, title: 'Home' }, React.createElement(Icon, { name: 'home' })),
+        props.onHome && React.createElement('button', { className: 'icon-btn', onClick: props.onHome, title: 'Home' }, React.createElement(Icon, { name: 'home' })),
         React.createElement('h1', { className: 'room-title' }, room.name)
       ),
       React.createElement('div', { className: 'header-center' },
@@ -1437,67 +1531,52 @@ function Room(props) {
           React.createElement('input', { value: urlInput, onChange: function(e) { setUrlInput(e.target.value); }, placeholder: 'Enter URL...', onKeyDown: function(e) { if (e.key === 'Enter') playNow(); } }),
           React.createElement('button', { className: 'icon-btn primary', onClick: playNow, title: 'Play Now' }, React.createElement(Icon, { name: 'play' })),
           React.createElement('button', { className: 'icon-btn', onClick: handleAddUrl, disabled: !activePlaylist, title: 'Add to Playlist' }, React.createElement(Icon, { name: 'plus' })),
-          React.createElement('button', { className: 'icon-btn', onClick: function() { fileInputRef.current && fileInputRef.current.click(); }, title: 'Upload File' }, React.createElement(Icon, { name: 'upload' }))
+          React.createElement('button', { className: 'icon-btn', onClick: function() { fileInputRef.current && fileInputRef.current.click(); }, title: 'Upload' }, React.createElement(Icon, { name: 'upload' }))
         )
       ),
       React.createElement('div', { className: 'header-right' },
         React.createElement('button', { className: 'btn secondary sm', onClick: function() { setShareModalOpen(true); } }, React.createElement(Icon, { name: 'share', size: 'sm' }), ' Share'),
         user 
-          ? React.createElement(UserMenu, { user: user, onSettings: function() { setSettingsOpen(true); }, onLogout: onLogout, onHome: onHome })
+          ? React.createElement(UserMenu, { user: user, onSettings: function() { setSettingsOpen(true); }, onLogout: props.onLogout, onHome: props.onHome })
           : React.createElement('div', { className: 'guest-badge' }, React.createElement('span', { className: 'guest-name' }, displayName), React.createElement('span', { className: 'guest-tag' }, 'Guest'))
       )
     ),
     
     React.createElement('div', { className: 'dashboard-content' },
       React.createElement('aside', { className: 'sidebar' + (sidebarOpen ? '' : ' closed') },
-        React.createElement(PlaylistPanel, {
-          playlists: playlists,
-          activePlaylist: activePlaylist,
-          onSelect: setActivePlaylist,
-          onCreate: handleCreatePlaylist,
-          onDelete: handleDeletePlaylist,
-          onRename: handleRenamePlaylist,
-          onReorder: handleReorderPlaylists
-        })
+        React.createElement(PlaylistPanel, { playlists: playlists, activePlaylist: activePlaylist, onSelect: setActivePlaylist, onCreate: handleCreatePlaylist, onDelete: handleDeletePlaylist, onRename: handleRenamePlaylist, onReorder: handleReorderPlaylists })
       ),
       
       React.createElement('main', { className: 'main-content' },
         React.createElement('div', { className: 'queue-panel' },
-          React.createElement('div', { className: 'queue-header' }, 
-            React.createElement('h3', null, '📜 ', activePlaylist ? activePlaylist.name : 'Select Playlist')
-          ),
+          React.createElement('div', { className: 'queue-header' }, React.createElement('h3', null, '📜 ', activePlaylist ? activePlaylist.name : 'Select Playlist')),
           activePlaylist 
-            ? React.createElement(DraggableVideoList, {
-                videos: activePlaylist.videos || [],
-                currentVideo: currentVideo,
-                onPlay: playVideo,
-                onRemove: removeVideo,
-                onRename: renameVideo,
-                onReorder: reorderVideos
-              })
+            ? React.createElement(DraggableVideoList, { videos: activePlaylist.videos || [], currentVideo: currentVideo, onPlay: playVideo, onRemove: removeVideo, onRename: renameVideo, onReorder: reorderVideos })
             : React.createElement('div', { className: 'empty-queue' }, React.createElement('p', null, 'Select a playlist'))
         ),
         
         React.createElement('div', { className: 'video-section' },
-          React.createElement(VideoPlayer, { video: currentVideo, onEnded: playNext }),
+          React.createElement(VideoPlayer, { 
+            video: currentVideo, 
+            playbackState: playbackState, 
+            playbackTime: playbackTime, 
+            onStateChange: handlePlayerStateChange, 
+            onEnded: playNext,
+            isLocalChange: isLocalChange.current
+          }),
           React.createElement('div', { className: 'playback-controls' },
             React.createElement('button', { className: 'btn sm', onClick: playPrev, disabled: !activePlaylist || currentIndex <= 0 }, React.createElement(Icon, { name: 'prev', size: 'sm' }), ' Prev'),
             React.createElement('div', { className: 'now-playing' },
               currentVideo 
-                ? React.createElement(React.Fragment, null, React.createElement('span', { className: 'playing-label' }, 'Now playing'), React.createElement('span', { className: 'playing-title' }, currentVideo.title || currentVideo.url))
+                ? React.createElement(React.Fragment, null, 
+                    React.createElement('span', { className: 'playing-label' }, playbackState === 'playing' ? '▶ Playing' : '⏸ Paused'),
+                    React.createElement('span', { className: 'playing-title' }, currentVideo.title || currentVideo.url)
+                  )
                 : React.createElement('span', { className: 'playing-label' }, 'Nothing playing')
             ),
             React.createElement('button', { className: 'btn sm', onClick: playNext, disabled: !activePlaylist || currentIndex >= ((activePlaylist && activePlaylist.videos || []).length) - 1 }, 'Next ', React.createElement(Icon, { name: 'next', size: 'sm' }))
           ),
-          React.createElement(ConnectedUsers, { 
-            users: connectedUsers, 
-            isHost: isOwner, 
-            currentUserId: visitorId, 
-            roomId: room.id, 
-            onKick: handleKick, 
-            onRename: handleRenameUser, 
-            onColorChange: handleColorChange 
-          })
+          React.createElement(ConnectedUsers, { users: connectedUsers, isHost: isOwner, currentUserId: visitorId, roomId: room.id, onKick: handleKick, onRename: handleRenameUser, onColorChange: handleColorChange })
         )
       )
     ),
@@ -1506,7 +1585,7 @@ function Room(props) {
       React.createElement('div', { className: 'modal', onClick: function(e) { e.stopPropagation(); } },
         React.createElement('button', { className: 'modal-close', onClick: function() { setShareModalOpen(false); } }, '×'),
         React.createElement('h2', null, 'Share Room'),
-        React.createElement('p', null, 'Anyone with this link can join as a guest'),
+        React.createElement('p', null, 'Anyone with this link can join'),
         React.createElement('div', { className: 'share-link-box' },
           React.createElement('input', { value: location.origin + location.pathname + '#/room/' + hostId + '/' + room.id, readOnly: true }),
           React.createElement('button', { className: 'btn primary', onClick: copyShareLink }, 'Copy')
@@ -1514,7 +1593,7 @@ function Room(props) {
       )
     ),
     
-    settingsOpen && user && React.createElement(SettingsModal, { user: user, onClose: function() { setSettingsOpen(false); }, onUpdate: onUpdateUser, onLogout: onLogout }),
+    settingsOpen && user && React.createElement(SettingsModal, { user: user, onClose: function() { setSettingsOpen(false); }, onUpdate: props.onUpdateUser, onLogout: props.onLogout }),
     notification && React.createElement('div', { className: 'notification ' + notification.type }, notification.message)
   );
 }
@@ -1559,31 +1638,19 @@ function MultiviewApp() {
   var pendingRoom = _pendingRoom[0];
   var setPendingRoom = _pendingRoom[1];
 
-  useEffect(function() { checkAuth(); }, []);
-
-  function checkAuth() {
+  useEffect(function() {
     api.auth.getCurrentUser().then(function(u) {
       if (u) setUser(u);
       var roomInfo = parseRoomUrl();
-      if (roomInfo) {
-        handleJoinFromUrl(roomInfo.hostId, roomInfo.roomId, u);
-      }
-    }).catch(function(err) { 
-      console.error('Auth error:', err);
-    }).finally(function() { 
-      setLoading(false); 
-    });
-  }
+      if (roomInfo) handleJoinFromUrl(roomInfo.hostId, roomInfo.roomId, u);
+    }).finally(function() { setLoading(false); });
+  }, []);
 
   useEffect(function() {
     function handleHashChange() {
       var roomInfo = parseRoomUrl();
-      if (roomInfo) {
-        handleJoinFromUrl(roomInfo.hostId, roomInfo.roomId, user);
-      } else if (currentView === 'room') {
-        setCurrentView('home');
-        setCurrentRoom(null);
-      }
+      if (roomInfo) handleJoinFromUrl(roomInfo.hostId, roomInfo.roomId, user);
+      else if (currentView === 'room') { setCurrentView('home'); setCurrentRoom(null); }
     }
     window.addEventListener('hashchange', handleHashChange);
     return function() { window.removeEventListener('hashchange', handleHashChange); };
@@ -1591,12 +1658,7 @@ function MultiviewApp() {
 
   function handleJoinFromUrl(hostId, roomId, currentUser) {
     api.rooms.get(roomId).then(function(room) {
-      if (!room) { 
-        alert('Room not found'); 
-        location.hash = ''; 
-        return; 
-      }
-      
+      if (!room) { alert('Room not found'); location.hash = ''; return; }
       if (currentUser) {
         setCurrentRoom(room);
         setRoomHostId(hostId);
@@ -1606,25 +1668,17 @@ function MultiviewApp() {
         setPendingRoom({ room: room, hostId: hostId });
         setShowGuestModal(true);
       }
-    }).catch(function(err) { 
-      alert('Failed to load room: ' + err.message); 
-      location.hash = ''; 
-    });
+    }).catch(function(err) { alert('Failed: ' + err.message); location.hash = ''; });
   }
 
-  function handleGuestJoin(displayName) {
+  function handleGuestJoin(name) {
     if (!pendingRoom) return;
     setCurrentRoom(pendingRoom.room);
     setRoomHostId(pendingRoom.hostId);
-    setGuestDisplayName(displayName);
+    setGuestDisplayName(name);
     setCurrentView('room');
     setShowGuestModal(false);
     setPendingRoom(null);
-  }
-
-  function handleShowAuth() {
-    setShowGuestModal(false);
-    setShowAuthScreen(true);
   }
 
   function handleAuthComplete(u) {
@@ -1662,48 +1716,21 @@ function MultiviewApp() {
     });
   }
 
-  function handleUpdateUser(u) {
-    setUser(u);
-  }
+  if (loading) return React.createElement('div', { className: 'loading-screen' }, React.createElement('div', { className: 'loading-dragon' }, '🐉'), React.createElement('div', { className: 'loading-text' }, 'Loading...'));
 
-  if (loading) {
-    return React.createElement('div', { className: 'loading-screen' }, 
-      React.createElement('div', { className: 'loading-dragon' }, '🐉'), 
-      React.createElement('div', { className: 'loading-text' }, 'Loading...')
-    );
-  }
+  if (showGuestModal) return React.createElement(GuestJoinModal, { onJoin: handleGuestJoin, onLogin: function() { setShowGuestModal(false); setShowAuthScreen(true); } });
 
-  if (showGuestModal) {
-    return React.createElement(GuestJoinModal, { onJoin: handleGuestJoin, onLogin: handleShowAuth });
-  }
+  if (showAuthScreen) return React.createElement(AuthScreen, { onAuth: handleAuthComplete });
 
-  if (showAuthScreen) {
-    return React.createElement(AuthScreen, { onAuth: handleAuthComplete });
-  }
+  if (!user && currentView !== 'room') return React.createElement(AuthScreen, { onAuth: function(u) { setUser(u); var ri = parseRoomUrl(); if (ri) handleJoinFromUrl(ri.hostId, ri.roomId, u); } });
 
-  if (!user && currentView !== 'room') {
-    return React.createElement(AuthScreen, { onAuth: function(u) { setUser(u); var roomInfo = parseRoomUrl(); if (roomInfo) handleJoinFromUrl(roomInfo.hostId, roomInfo.roomId, u); } });
-  }
+  if (currentView === 'room' && currentRoom) return React.createElement(Room, { user: user, room: currentRoom, hostId: roomHostId, guestDisplayName: guestDisplayName, onHome: user ? handleGoHome : null, onLogout: handleLogout, onUpdateUser: setUser });
 
-  if (currentView === 'room' && currentRoom) {
-    return React.createElement(Room, { 
-      user: user, 
-      room: currentRoom, 
-      hostId: roomHostId, 
-      guestDisplayName: guestDisplayName, 
-      onHome: user ? handleGoHome : null, 
-      onLogout: handleLogout, 
-      onUpdateUser: handleUpdateUser 
-    });
-  }
+  if (user) return React.createElement(HomePage, { user: user, onEnterRoom: handleEnterRoom, onLogout: handleLogout, onUpdateUser: setUser });
 
-  if (user) {
-    return React.createElement(HomePage, { user: user, onEnterRoom: handleEnterRoom, onLogout: handleLogout, onUpdateUser: handleUpdateUser });
-  }
-
-  return React.createElement(AuthScreen, { onAuth: function(u) { setUser(u); } });
+  return React.createElement(AuthScreen, { onAuth: setUser });
 }
 
 // Render
-console.log('Rendering Multiview...');
+console.log('Multiview with YouTube IFrame API sync');
 ReactDOM.createRoot(document.getElementById('app')).render(React.createElement(MultiviewApp));
