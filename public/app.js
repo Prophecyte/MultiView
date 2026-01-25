@@ -10,7 +10,7 @@ var useCallback = React.useCallback;
 
 var GOOGLE_CLIENT_ID = window.APP_CONFIG?.GOOGLE_CLIENT_ID || '';
 var API_BASE = '/api';
-var SYNC_INTERVAL = 800; // Fast sync for movie-like experience
+var SYNC_INTERVAL = 500; // Fast sync for near-instant playback control
 
 // ============================================
 // API Client
@@ -280,22 +280,22 @@ function YouTubePlayer(props) {
             // Monitor for seeks - check frequently for instant response
             seekCheckInterval.current = setInterval(function() {
               if (!playerRef.current || !isReady.current) return;
-              if (Date.now() - lastCommandTime.current < 500) return;
+              if (Date.now() - lastCommandTime.current < 300) return;
               
               try {
                 var currentTime = playerRef.current.getCurrentTime();
                 var expectedTime = lastKnownTime.current;
                 var playerState = playerRef.current.getPlayerState();
                 
-                // Account for normal playback (if playing, time advances ~0.2s per check)
+                // Account for normal playback (if playing, time advances ~0.15s per check)
                 if (playerState === 1) { // Playing
-                  expectedTime += 0.25; // Expected advance per 200ms check
+                  expectedTime += 0.2; // Expected advance per 150ms check
                 }
                 
                 var timeDiff = Math.abs(currentTime - expectedTime);
                 
                 // If time jumped more than 1.5 seconds, user seeked
-                if (timeDiff > 1.5 && Math.abs(currentTime - lastReportedSeek.current) > 1) {
+                if (timeDiff > 1 && Math.abs(currentTime - lastReportedSeek.current) > 1) {
                   console.log('YT: User seeked to', currentTime.toFixed(1));
                   lastReportedSeek.current = currentTime;
                   if (onSeek) {
@@ -304,11 +304,11 @@ function YouTubePlayer(props) {
                 }
                 lastKnownTime.current = currentTime;
               } catch (e) {}
-            }, 200); // Check every 200ms for responsive seek detection
+            }, 150); // Check every 150ms for instant seek detection
           },
           onStateChange: function(event) {
             // Ignore events triggered by our commands
-            if (Date.now() - lastCommandTime.current < 500) return;
+            if (Date.now() - lastCommandTime.current < 300) return;
             
             // YT states: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering
             if (event.data === 1 && onStateChange) {
@@ -378,7 +378,7 @@ function YouTubePlayer(props) {
       var timeDiff = Math.abs(currentTime - playbackTime);
       
       // Sync if difference is more than 1.5 seconds
-      if (timeDiff > 1.5) {
+      if (timeDiff > 1) {
         console.log('>>> Seeking to synced time:', playbackTime.toFixed(1), '(was at', currentTime.toFixed(1), ')');
         lastCommandTime.current = Date.now();
         lastKnownTime.current = playbackTime;
@@ -453,7 +453,7 @@ function VideoPlayer(props) {
     
     var timeDiff = Math.abs(videoRef.current.currentTime - playbackTime);
     
-    if (timeDiff > 2) {
+    if (timeDiff > 1) {
       ignoreNextEvent.current = true;
       videoRef.current.currentTime = playbackTime;
     }
@@ -1460,7 +1460,7 @@ function Room(props) {
       
       // Skip sync if we made a local change in the last 2 seconds
       var timeSinceLocalChange = Date.now() - (lastLocalChange.current || 0);
-      if (timeSinceLocalChange < 1000) {
+      if (timeSinceLocalChange < 500) {
         return;
       }
       
@@ -1492,7 +1492,7 @@ function Room(props) {
             // Same video - check for state or time changes
             var stateChanged = serverState !== lastSyncedState.current;
             var timeDiff = Math.abs(serverTime - lastSyncedTime.current);
-            var timeChanged = timeDiff > 1.5; // Sync if > 1.5 seconds difference
+            var timeChanged = timeDiff > 1; // Sync if > 1 second difference
             
             if (stateChanged) {
               console.log('>>> STATE CHANGE:', lastSyncedState.current, '->', serverState);
@@ -1789,7 +1789,7 @@ function Room(props) {
             onStateChange: handlePlayerStateChange,
             onSeek: handlePlayerSeek,
             onEnded: playNext,
-            isLocalChange: (Date.now() - lastLocalChange.current) < 1000
+            isLocalChange: (Date.now() - lastLocalChange.current) < 500
           }),
           React.createElement('div', { className: 'playback-controls' },
             React.createElement('button', { className: 'btn sm', onClick: playPrev, disabled: !activePlaylist || currentIndex <= 0 }, React.createElement(Icon, { name: 'prev', size: 'sm' }), ' Prev'),
