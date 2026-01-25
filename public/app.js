@@ -242,67 +242,80 @@ function YouTubePlayer(props) {
   var playbackState = props.playbackState;
   var playbackTime = props.playbackTime;
   var onStateChange = props.onStateChange;
-  var onTimeUpdate = props.onTimeUpdate;
   var isLocalChange = props.isLocalChange;
   
-  var containerRef = useRef(null);
   var playerRef = useRef(null);
-  var lastStateRef = useRef(null);
   var ignoreNextStateChange = useRef(false);
+  var containerId = 'yt-player-' + videoId;
 
   useEffect(function() {
     if (!videoId) return;
     
-    onYTReady(function() {
-      if (playerRef.current) {
-        playerRef.current.destroy();
-      }
-      
-      playerRef.current = new YT.Player(containerRef.current, {
-        videoId: videoId,
-        playerVars: {
-          autoplay: 1,
-          rel: 0,
-          modestbranding: 1
-        },
-        events: {
-          onReady: function(event) {
-            console.log('YouTube player ready');
-            // Seek to correct time if needed
-            if (playbackTime > 0) {
-              event.target.seekTo(playbackTime, true);
-            }
-            if (playbackState === 'playing') {
-              event.target.playVideo();
-            } else {
-              event.target.pauseVideo();
-            }
+    // Small delay to ensure DOM is ready
+    var timeoutId = setTimeout(function() {
+      onYTReady(function() {
+        // Check if container exists
+        var container = document.getElementById(containerId);
+        if (!container) {
+          console.error('YouTube container not found:', containerId);
+          return;
+        }
+        
+        if (playerRef.current) {
+          try { playerRef.current.destroy(); } catch(e) {}
+        }
+        
+        console.log('Creating YouTube player for:', videoId);
+        
+        playerRef.current = new YT.Player(containerId, {
+          videoId: videoId,
+          width: '100%',
+          height: '100%',
+          playerVars: {
+            autoplay: 1,
+            rel: 0,
+            modestbranding: 1,
+            playsinline: 1
           },
-          onStateChange: function(event) {
-            if (ignoreNextStateChange.current) {
-              ignoreNextStateChange.current = false;
-              return;
-            }
-            
-            var state = event.data;
-            // YT.PlayerState: PLAYING=1, PAUSED=2, BUFFERING=3, ENDED=0
-            if (state === YT.PlayerState.PLAYING) {
-              var currentTime = event.target.getCurrentTime();
-              console.log('Local: Playing at', currentTime);
-              onStateChange('playing', currentTime);
-            } else if (state === YT.PlayerState.PAUSED) {
-              var currentTime = event.target.getCurrentTime();
-              console.log('Local: Paused at', currentTime);
-              onStateChange('paused', currentTime);
+          events: {
+            onReady: function(event) {
+              console.log('YouTube player ready');
+              if (playbackTime > 0) {
+                event.target.seekTo(playbackTime, true);
+              }
+              if (playbackState === 'playing') {
+                event.target.playVideo();
+              }
+            },
+            onStateChange: function(event) {
+              if (ignoreNextStateChange.current) {
+                ignoreNextStateChange.current = false;
+                return;
+              }
+              
+              var state = event.data;
+              if (state === YT.PlayerState.PLAYING) {
+                var currentTime = event.target.getCurrentTime();
+                console.log('YT Local: Playing at', currentTime);
+                onStateChange('playing', currentTime);
+              } else if (state === YT.PlayerState.PAUSED) {
+                var currentTime = event.target.getCurrentTime();
+                console.log('YT Local: Paused at', currentTime);
+                onStateChange('paused', currentTime);
+              }
+            },
+            onError: function(event) {
+              console.error('YouTube player error:', event.data);
             }
           }
-        }
+        });
       });
-    });
+    }, 100);
     
     return function() {
+      clearTimeout(timeoutId);
       if (playerRef.current) {
-        playerRef.current.destroy();
+        try { playerRef.current.destroy(); } catch(e) {}
         playerRef.current = null;
       }
     };
@@ -337,8 +350,8 @@ function YouTubePlayer(props) {
   }, [playbackState, playbackTime, isLocalChange]);
 
   return React.createElement('div', { 
-    ref: containerRef, 
-    style: { width: '100%', height: '100%' } 
+    id: containerId,
+    style: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' } 
   });
 }
 
@@ -424,7 +437,7 @@ function VideoPlayer(props) {
   if (!parsed) return React.createElement('div', { className: 'video-error' }, 'Invalid video URL');
 
   if (parsed.type === 'youtube') {
-    return React.createElement('div', { className: 'video-frame', style: { position: 'relative' } },
+    return React.createElement('div', { className: 'video-frame' },
       React.createElement(YouTubePlayer, {
         videoId: parsed.id,
         playbackState: playbackState,
