@@ -1062,11 +1062,6 @@ body {
   flex-shrink: 0;
 }
 
-.video-type-icon {
-  font-size: 14px;
-  flex-shrink: 0;
-}
-
 .video-title {
   flex: 1;
   font-size: 13px;
@@ -2170,4 +2165,69 @@ body {
 .playlist-item.drag-over {
   border-color: var(--gold);
   background: var(--gold-subtle);
+}
+
+/* ============================================
+   Color Picker Modal
+   ============================================ */
+.color-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  padding: 20px;
+  justify-items: center;
+}
+
+.color-option {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.color-option:hover {
+  transform: scale(1.15);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.color-option.selected {
+  border-color: white;
+  box-shadow: 0 0 0 2px var(--gold), 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+/* ============================================
+   Uniform Playlist Fonts
+   ============================================ */
+.playlist-panel,
+.playlist-item,
+.playlist-name,
+.playlist-count,
+.video-item,
+.video-title,
+.video-index,
+.playlist-edit-input,
+.video-edit-input {
+  font-family: var(--font-main);
+}
+
+.playlist-name,
+.video-title {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.playlist-count,
+.video-index {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.playlist-edit-input,
+.video-edit-input {
+  font-size: 13px;
+  font-family: var(--font-main);
 }
