@@ -453,18 +453,15 @@ function DraggableVideoList(props) {
         onDrop: function(e) { handleDrop(e, i); },
         onDragEnd: handleDragEnd
       },
-        React.createElement('div', { className: 'video-drag-handle' },
-          React.createElement(Icon, { name: 'grip', size: 'sm' })
-        ),
-        React.createElement('button', { className: 'video-play-btn', onClick: function() { onPlay(v, i); }, title: 'Play' },
-          React.createElement(Icon, { name: 'play', size: 'sm' })
-        ),
-        React.createElement('div', { className: 'video-info', onClick: function() { onPlay(v, i); } },
+        React.createElement('div', { className: 'video-item-top' },
+          React.createElement('div', { className: 'drag-handle' }, React.createElement(Icon, { name: 'grip', size: 'sm' })),
+          React.createElement('span', { className: 'video-index' }, i + 1),
           React.createElement('span', { className: 'video-type-icon' }, getVideoTypeIcon(parsed ? parsed.type : null)),
-          React.createElement('span', { className: 'video-title' }, v.title || v.url)
+          React.createElement('span', { className: 'video-title', onClick: function() { onPlay(v, i); } }, v.title || v.url)
         ),
-        React.createElement('button', { className: 'video-remove-btn', onClick: function() { onRemove(v.id); }, title: 'Remove' },
-          React.createElement(Icon, { name: 'trash', size: 'sm' })
+        React.createElement('div', { className: 'video-actions' },
+          React.createElement('button', { className: 'icon-btn sm primary', onClick: function() { onPlay(v, i); }, title: 'Play' }, React.createElement(Icon, { name: 'play', size: 'sm' })),
+          React.createElement('button', { className: 'icon-btn sm danger', onClick: function() { onRemove(v.id); }, title: 'Remove' }, React.createElement(Icon, { name: 'trash', size: 'sm' }))
         )
       );
     })
