@@ -1,7 +1,6 @@
 // netlify/functions/playlists.js
 import { neon } from '@neondatabase/serverless';
 
-// Netlify Neon extension uses NETLIFY_DATABASE_URL
 const sql = neon(process.env.NETLIFY_DATABASE_URL || process.env.DATABASE_URL);
 
 const headers = {
@@ -11,9 +10,18 @@ const headers = {
   'Content-Type': 'application/json'
 };
 
+const getPath = (event) => {
+  let path = event.path || '';
+  path = path.replace('/.netlify/functions/playlists', '');
+  path = path.replace('/api/playlists', '');
+  if (!path.startsWith('/')) path = '/' + path;
+  if (path === '/') path = '';
+  return path;
+};
+
 const getUserFromToken = async (authHeader) => {
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  const token = authHeader.substring(7);
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  const token = authHeader.replace('Bearer ', '');
   
   const [session] = await sql`
     SELECT u.id, u.email, u.display_name
@@ -30,32 +38,35 @@ export const handler = async (event) => {
     return { statusCode: 200, headers, body: '' };
   }
 
-  const path = event.path.replace('/.netlify/functions/playlists', '');
+  const path = getPath(event);
   const body = event.body ? JSON.parse(event.body) : {};
-  const user = await getUserFromToken(event.headers.authorization);
+  const user = await getUserFromToken(event.headers.authorization || event.headers.Authorization);
+  const query = event.queryStringParameters || {};
+
+  console.log('Playlists function:', event.httpMethod, path);
 
   try {
-    // GET /playlists?roomId=xxx - List playlists for a room
+    // GET /playlists?roomId=xxx - List playlists for room
     if (event.httpMethod === 'GET' && path === '') {
-      const roomId = event.queryStringParameters?.roomId;
+      const roomId = query.roomId;
       if (!roomId) {
-        return { statusCode: 400, headers, body: JSON.stringify({ error: 'roomId is required' }) };
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'roomId required' }) };
       }
 
       const playlists = await sql`
-        SELECT p.*, 
-               (SELECT COUNT(*) FROM videos WHERE playlist_id = p.id) as video_count,
-               json_agg(
-                 json_build_object(
-                   'id', v.id,
-                   'title', v.title,
-                   'url', v.url,
-                   'videoType', v.video_type,
-                   'thumbnailUrl', v.thumbnail_url,
-                   'duration', v.duration,
-                   'position', v.position
-                 ) ORDER BY v.position
-               ) FILTER (WHERE v.id IS NOT NULL) as videos
+        SELECT p.id, p.name, p.position, p.created_at,
+               COALESCE(
+                 json_agg(
+                   json_build_object(
+                     'id', v.id,
+                     'title', v.title,
+                     'url', v.url,
+                     'videoType', v.video_type,
+                     'position', v.position
+                   ) ORDER BY v.position
+                 ) FILTER (WHERE v.id IS NOT NULL),
+                 '[]'
+               ) as videos
         FROM playlists p
         LEFT JOIN videos v ON v.playlist_id = p.id
         WHERE p.room_id = ${roomId}::uuid
@@ -63,11 +74,7 @@ export const handler = async (event) => {
         ORDER BY p.position, p.created_at
       `;
 
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ playlists })
-      };
+      return { statusCode: 200, headers, body: JSON.stringify({ playlists }) };
     }
 
     // POST /playlists - Create playlist
@@ -75,15 +82,7 @@ export const handler = async (event) => {
       const { roomId, name } = body;
       
       if (!roomId || !name) {
-        return { statusCode: 400, headers, body: JSON.stringify({ error: 'roomId and name are required' }) };
-      }
-
-      // Check if user owns room (if logged in)
-      if (user) {
-        const [room] = await sql`SELECT owner_id FROM rooms WHERE id = ${roomId}::uuid`;
-        if (!room || room.owner_id !== user.id) {
-          return { statusCode: 403, headers, body: JSON.stringify({ error: 'Only room owner can create playlists' }) };
-        }
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'roomId and name required' }) };
       }
 
       // Get max position
@@ -92,146 +91,90 @@ export const handler = async (event) => {
       const [playlist] = await sql`
         INSERT INTO playlists (room_id, name, position)
         VALUES (${roomId}::uuid, ${name}, ${maxPos.pos})
-        RETURNING *
+        RETURNING id, name, position, created_at
       `;
 
-      return {
-        statusCode: 201,
-        headers,
-        body: JSON.stringify({ playlist: { ...playlist, videos: [] } })
-      };
+      return { statusCode: 200, headers, body: JSON.stringify({ playlist: { ...playlist, videos: [] } }) };
     }
 
+    // Extract playlist ID from path
+    const playlistMatch = path.match(/^\/([^\/]+)(\/.*)?$/);
+    if (!playlistMatch) {
+      return { statusCode: 404, headers, body: JSON.stringify({ error: 'Not found' }) };
+    }
+
+    const playlistId = playlistMatch[1];
+    const subPath = playlistMatch[2] || '';
+
     // PUT /playlists/:id - Update playlist
-    if (event.httpMethod === 'PUT' && path.match(/^\/[^\/]+$/)) {
-      const playlistId = path.substring(1);
-      const { name, position } = body;
+    if (event.httpMethod === 'PUT' && subPath === '') {
+      const { name } = body;
 
       const [playlist] = await sql`
-        UPDATE playlists
-        SET name = COALESCE(${name}, name),
-            position = COALESCE(${position}, position)
+        UPDATE playlists SET name = COALESCE(${name}, name)
         WHERE id = ${playlistId}::uuid
-        RETURNING *
+        RETURNING id, name, position, created_at
       `;
 
       if (!playlist) {
         return { statusCode: 404, headers, body: JSON.stringify({ error: 'Playlist not found' }) };
       }
 
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ playlist })
-      };
+      return { statusCode: 200, headers, body: JSON.stringify({ playlist }) };
     }
 
     // DELETE /playlists/:id - Delete playlist
-    if (event.httpMethod === 'DELETE' && path.match(/^\/[^\/]+$/)) {
-      const playlistId = path.substring(1);
-
+    if (event.httpMethod === 'DELETE' && subPath === '') {
       await sql`DELETE FROM playlists WHERE id = ${playlistId}::uuid`;
-
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ success: true })
-      };
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
     }
 
-    // POST /playlists/:id/videos - Add video to playlist
-    if (event.httpMethod === 'POST' && path.match(/^\/[^\/]+\/videos$/)) {
-      const playlistId = path.split('/')[1];
-      const { title, url, videoType, thumbnailUrl, duration } = body;
+    // POST /playlists/:id/videos - Add video
+    if (event.httpMethod === 'POST' && subPath === '/videos') {
+      const { title, url, videoType } = body;
 
-      if (!title || !url || !videoType) {
-        return { statusCode: 400, headers, body: JSON.stringify({ error: 'title, url, and videoType are required' }) };
+      if (!url) {
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'url required' }) };
       }
 
-      // Get max position
       const [maxPos] = await sql`SELECT COALESCE(MAX(position), -1) + 1 as pos FROM videos WHERE playlist_id = ${playlistId}::uuid`;
 
       const [video] = await sql`
-        INSERT INTO videos (playlist_id, title, url, video_type, thumbnail_url, duration, position, added_by)
-        VALUES (${playlistId}::uuid, ${title}, ${url}, ${videoType}, ${thumbnailUrl || null}, ${duration || null}, ${maxPos.pos}, ${user?.id || null})
-        RETURNING *
+        INSERT INTO videos (playlist_id, title, url, video_type, position)
+        VALUES (${playlistId}::uuid, ${title || url}, ${url}, ${videoType || 'youtube'}, ${maxPos.pos})
+        RETURNING id, title, url, video_type as "videoType", position
       `;
 
-      return {
-        statusCode: 201,
-        headers,
-        body: JSON.stringify({ video })
-      };
+      return { statusCode: 200, headers, body: JSON.stringify({ video }) };
     }
 
-    // PUT /playlists/:playlistId/videos/:videoId - Update video
-    if (event.httpMethod === 'PUT' && path.match(/^\/[^\/]+\/videos\/[^\/]+$/)) {
-      const parts = path.split('/');
-      const videoId = parts[3];
-      const { title, position } = body;
-
-      const [video] = await sql`
-        UPDATE videos
-        SET title = COALESCE(${title}, title),
-            position = COALESCE(${position}, position)
-        WHERE id = ${videoId}::uuid
-        RETURNING *
-      `;
-
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ video })
-      };
-    }
-
-    // DELETE /playlists/:playlistId/videos/:videoId - Remove video
-    if (event.httpMethod === 'DELETE' && path.match(/^\/[^\/]+\/videos\/[^\/]+$/)) {
-      const parts = path.split('/');
-      const videoId = parts[3];
-
-      await sql`DELETE FROM videos WHERE id = ${videoId}::uuid`;
-
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ success: true })
-      };
+    // DELETE /playlists/:id/videos/:videoId - Remove video
+    const videoMatch = subPath.match(/^\/videos\/([^\/]+)$/);
+    if (event.httpMethod === 'DELETE' && videoMatch) {
+      const videoId = videoMatch[1];
+      await sql`DELETE FROM videos WHERE id = ${videoId}::uuid AND playlist_id = ${playlistId}::uuid`;
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
     }
 
     // PUT /playlists/:id/reorder - Reorder videos
-    if (event.httpMethod === 'PUT' && path.match(/^\/[^\/]+\/reorder$/)) {
-      const playlistId = path.split('/')[1];
-      const { videoIds } = body; // Array of video IDs in new order
+    if (event.httpMethod === 'PUT' && subPath === '/reorder') {
+      const { videoIds } = body;
 
       if (!Array.isArray(videoIds)) {
-        return { statusCode: 400, headers, body: JSON.stringify({ error: 'videoIds array is required' }) };
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'videoIds array required' }) };
       }
 
-      // Update positions
       for (let i = 0; i < videoIds.length; i++) {
         await sql`UPDATE videos SET position = ${i} WHERE id = ${videoIds[i]}::uuid AND playlist_id = ${playlistId}::uuid`;
       }
 
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ success: true })
-      };
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
     }
 
-    return {
-      statusCode: 404,
-      headers,
-      body: JSON.stringify({ error: 'Not found' })
-    };
+    return { statusCode: 404, headers, body: JSON.stringify({ error: 'Not found' }) };
 
   } catch (error) {
     console.error('Playlists error:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Internal server error' })
-    };
+    return { statusCode: 500, headers, body: JSON.stringify({ error: error.message }) };
   }
 };
