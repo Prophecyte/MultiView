@@ -128,6 +128,7 @@ export const handler = async (event) => {
       // Get room owner
       const [room] = await sql`SELECT owner_id FROM rooms WHERE id = ${roomId}::uuid`;
 
+      // Get all members, determine status based on last_seen
       const members = await sql`
         SELECT 
           rv.user_id,
@@ -136,10 +137,14 @@ export const handler = async (event) => {
           rv.color,
           rv.status,
           rv.last_seen,
-          CASE WHEN rv.user_id = ${room?.owner_id || null} THEN true ELSE false END as is_owner
+          CASE WHEN rv.user_id = ${room?.owner_id || null} THEN true ELSE false END as is_owner,
+          CASE 
+            WHEN rv.last_seen > NOW() - INTERVAL '15 seconds' THEN 'online'
+            WHEN rv.last_seen > NOW() - INTERVAL '60 seconds' THEN 'away'
+            ELSE 'offline'
+          END as computed_status
         FROM room_visitors rv
         WHERE rv.room_id = ${roomId}::uuid
-          AND (rv.last_seen > NOW() - INTERVAL '30 seconds' OR rv.status = 'online')
         ORDER BY is_owner DESC, rv.display_name
       `;
 
@@ -149,9 +154,11 @@ export const handler = async (event) => {
         body: JSON.stringify({
           members: members.map(m => ({
             visitorId: m.user_id || m.guest_id,
+            visitorUserId: m.user_id,
+            guestId: m.guest_id,
             displayName: m.display_name,
             color: m.color,
-            status: m.status,
+            status: m.computed_status,
             isOwner: m.is_owner,
             lastSeen: m.last_seen
           }))
