@@ -129,6 +129,7 @@ export const handler = async (event) => {
       const [room] = await sql`SELECT owner_id FROM rooms WHERE id = ${roomId}::uuid`;
 
       // Get all members, determine status based on last_seen
+      // Using longer intervals to account for browser throttling background tabs
       const members = await sql`
         SELECT 
           rv.user_id,
@@ -139,8 +140,8 @@ export const handler = async (event) => {
           rv.last_seen,
           CASE WHEN rv.user_id = ${room?.owner_id || null} THEN true ELSE false END as is_owner,
           CASE 
-            WHEN rv.last_seen > NOW() - INTERVAL '15 seconds' THEN 'online'
-            WHEN rv.last_seen > NOW() - INTERVAL '60 seconds' THEN 'away'
+            WHEN rv.last_seen > NOW() - INTERVAL '45 seconds' THEN 'online'
+            WHEN rv.last_seen > NOW() - INTERVAL '3 minutes' THEN 'away'
             ELSE 'offline'
           END as computed_status
         FROM room_visitors rv
