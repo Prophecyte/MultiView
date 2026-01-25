@@ -77,6 +77,21 @@ export const handler = async (event) => {
       return { statusCode: 200, headers, body: JSON.stringify({ playlists }) };
     }
 
+    // PUT /playlists/reorder - Reorder playlists
+    if (event.httpMethod === 'PUT' && path === '/reorder') {
+      const { roomId, playlistIds } = body;
+      
+      if (!roomId || !Array.isArray(playlistIds)) {
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'roomId and playlistIds array required' }) };
+      }
+
+      for (let i = 0; i < playlistIds.length; i++) {
+        await sql`UPDATE playlists SET position = ${i} WHERE id = ${playlistIds[i]}::uuid AND room_id = ${roomId}::uuid`;
+      }
+
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
+    }
+
     // POST /playlists - Create playlist
     if (event.httpMethod === 'POST' && path === '') {
       const { roomId, name } = body;
@@ -153,6 +168,18 @@ export const handler = async (event) => {
     if (event.httpMethod === 'DELETE' && videoMatch) {
       const videoId = videoMatch[1];
       await sql`DELETE FROM videos WHERE id = ${videoId}::uuid AND playlist_id = ${playlistId}::uuid`;
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
+    }
+
+    // PUT /playlists/:id/videos/:videoId - Update video (rename)
+    if (event.httpMethod === 'PUT' && videoMatch) {
+      const videoId = videoMatch[1];
+      const { title } = body;
+      
+      if (title) {
+        await sql`UPDATE videos SET title = ${title} WHERE id = ${videoId}::uuid AND playlist_id = ${playlistId}::uuid`;
+      }
+      
       return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
     }
 
