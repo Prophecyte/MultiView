@@ -104,6 +104,12 @@ api.rooms = {
   },
   async kick(roomId, visitorId, guestId) {
     await api.request('/rooms/' + roomId + '/kick', { method: 'POST', body: JSON.stringify({ visitorId, guestId }) });
+  },
+  async getSync(roomId) {
+    return await api.request('/rooms/' + roomId + '/sync');
+  },
+  async updateSync(roomId, state) {
+    await api.request('/rooms/' + roomId + '/sync', { method: 'PUT', body: JSON.stringify(state) });
   }
 };
 
@@ -722,23 +728,58 @@ function Room({ user, room, hostId, visitorDisplayName, onHome, onLogout, onUpda
   var isOwner = user && user.id === hostId;
   var displayName = visitorDisplayName || (user ? user.displayName : 'Guest');
 
-  useEffect(function() {
-    api.playlists.list(room.id).then(function(p) {
-      setPlaylists(p);
-      if (p.length > 0) setActivePlaylist(p[0]);
-    }).catch(console.error);
-  }, [room.id]);
+  var lastSyncTime = useRef(null);
+  var localVideoChange = useRef(false);
 
+  // Sync room state from server
+  function syncRoomState() {
+    api.rooms.getSync(room.id).then(function(data) {
+      // Update connected users
+      if (data.members) {
+        setConnectedUsers(data.members);
+      }
+      
+      // Update playlists
+      if (data.playlists) {
+        setPlaylists(data.playlists);
+        // Update active playlist if it exists
+        if (activePlaylist) {
+          var updated = data.playlists.find(function(p) { return p.id === activePlaylist.id; });
+          if (updated) setActivePlaylist(updated);
+        } else if (data.playlists.length > 0) {
+          setActivePlaylist(data.playlists[0]);
+        }
+      }
+      
+      // Update current video from server (if we didn't just change it locally)
+      if (data.room && data.room.playbackUpdatedAt && !localVideoChange.current) {
+        var serverTime = new Date(data.room.playbackUpdatedAt).getTime();
+        if (!lastSyncTime.current || serverTime > lastSyncTime.current) {
+          if (data.room.currentVideoUrl) {
+            setCurrentVideo({
+              id: 'synced',
+              title: data.room.currentVideoTitle || data.room.currentVideoUrl,
+              url: data.room.currentVideoUrl
+            });
+          }
+          lastSyncTime.current = serverTime;
+        }
+      }
+      localVideoChange.current = false;
+    }).catch(console.error);
+  }
+
+  // Initial load and join room
   useEffect(function() {
-    api.rooms.join(room.id, displayName).catch(console.error);
+    api.rooms.join(room.id, displayName).then(function() {
+      syncRoomState();
+    }).catch(console.error);
     
-    function updatePresence() {
+    // Poll for updates every 3 seconds
+    presenceInterval.current = setInterval(function() {
       api.presence.heartbeat(room.id, 'online').catch(console.error);
-      api.presence.getMembers(room.id).then(setConnectedUsers).catch(console.error);
-    }
-    
-    updatePresence();
-    presenceInterval.current = setInterval(updatePresence, PRESENCE_INTERVAL);
+      syncRoomState();
+    }, 3000);
     
     return function() {
       clearInterval(presenceInterval.current);
@@ -746,13 +787,23 @@ function Room({ user, room, hostId, visitorDisplayName, onHome, onLogout, onUpda
     };
   }, [room.id, displayName]);
 
+  // Broadcast video change to server
+  function broadcastVideoChange(video) {
+    localVideoChange.current = true;
+    api.rooms.updateSync(room.id, {
+      currentVideoUrl: video ? video.url : null,
+      currentVideoTitle: video ? video.title : null,
+      currentPlaylistId: activePlaylist ? activePlaylist.id : null
+    }).catch(console.error);
+  }
+
   function showNotif(msg, type) {
     setNotification({ message: msg, type: type || 'success' });
     setTimeout(function() { setNotification(null); }, 3000);
   }
 
   function createPlaylist() {
-    if (!isOwner || !newPlaylistName.trim()) return;
+    if (!newPlaylistName.trim()) return;
     api.playlists.create(room.id, newPlaylistName.trim()).then(function(p) {
       var newPl = { ...p, videos: [] };
       setPlaylists(playlists.concat([newPl]));
@@ -764,7 +815,7 @@ function Room({ user, room, hostId, visitorDisplayName, onHome, onLogout, onUpda
   }
 
   function deletePlaylist(id) {
-    if (!isOwner || !confirm('Delete playlist?')) return;
+    if (!confirm('Delete playlist?')) return;
     api.playlists.delete(id).then(function() {
       setPlaylists(playlists.filter(function(p) { return p.id !== id; }));
       if (activePlaylist && activePlaylist.id === id) { setActivePlaylist(null); setCurrentVideo(null); }
@@ -786,24 +837,37 @@ function Room({ user, room, hostId, visitorDisplayName, onHome, onLogout, onUpda
     }).catch(function(err) { showNotif('Failed: ' + err.message, 'error'); });
   }
 
-  function playVideo(video, index) { setCurrentVideo(video); setCurrentIndex(index); }
+  function playVideo(video, index) { 
+    setCurrentVideo(video); 
+    setCurrentIndex(index);
+    broadcastVideoChange(video);
+  }
   function playNow() {
     if (!urlInput.trim()) return;
     var parsed = parseVideoUrl(urlInput.trim());
     if (!parsed) { showNotif('Invalid URL', 'error'); return; }
-    setCurrentVideo({ id: 'temp', title: urlInput, url: urlInput.trim() });
+    var video = { id: 'temp', title: urlInput, url: urlInput.trim() };
+    setCurrentVideo(video);
+    broadcastVideoChange(video);
     setUrlInput('');
   }
   function playPrev() {
     if (!activePlaylist || currentIndex <= 0) return;
     var videos = activePlaylist.videos || [];
-    setCurrentVideo(videos[currentIndex - 1]);
+    var video = videos[currentIndex - 1];
+    setCurrentVideo(video);
     setCurrentIndex(currentIndex - 1);
+    broadcastVideoChange(video);
   }
   function playNext() {
     if (!activePlaylist) return;
     var videos = activePlaylist.videos || [];
-    if (currentIndex < videos.length - 1) { setCurrentVideo(videos[currentIndex + 1]); setCurrentIndex(currentIndex + 1); }
+    if (currentIndex < videos.length - 1) { 
+      var video = videos[currentIndex + 1];
+      setCurrentVideo(video); 
+      setCurrentIndex(currentIndex + 1);
+      broadcastVideoChange(video);
+    }
   }
   function removeVideo(videoId) {
     if (!activePlaylist) return;
@@ -881,9 +945,9 @@ function Room({ user, room, hostId, visitorDisplayName, onHome, onLogout, onUpda
       React.createElement('aside', { className: 'sidebar' + (sidebarOpen ? '' : ' closed') },
         React.createElement('div', { className: 'sidebar-header' },
           React.createElement('h3', null, 'Playlists'),
-          isOwner && React.createElement('button', { className: 'icon-btn sm', onClick: function() { setShowCreatePlaylist(true); } }, React.createElement(Icon, { name: 'plus', size: 'sm' }))
+          React.createElement('button', { className: 'icon-btn sm', onClick: function() { setShowCreatePlaylist(true); } }, React.createElement(Icon, { name: 'plus', size: 'sm' }))
         ),
-        isOwner && showCreatePlaylist && React.createElement('div', { className: 'create-playlist-form' },
+        showCreatePlaylist && React.createElement('div', { className: 'create-playlist-form' },
           React.createElement('input', { value: newPlaylistName, onChange: function(e) { setNewPlaylistName(e.target.value); }, placeholder: 'Name', onKeyDown: function(e) { if (e.key === 'Enter') createPlaylist(); }, autoFocus: true }),
           React.createElement('div', { className: 'form-actions' },
             React.createElement('button', { className: 'btn primary sm', onClick: createPlaylist }, 'Create'),
@@ -898,7 +962,7 @@ function Room({ user, room, hostId, visitorDisplayName, onHome, onLogout, onUpda
                 React.createElement('span', { className: 'playlist-name' }, p.name),
                 React.createElement('span', { className: 'playlist-count' }, (p.videos || []).length)
               ),
-              isOwner && React.createElement('div', { className: 'playlist-actions' },
+              React.createElement('div', { className: 'playlist-actions' },
                 React.createElement('button', { className: 'icon-btn sm danger', onClick: function() { deletePlaylist(p.id); } }, React.createElement(Icon, { name: 'trash', size: 'sm' }))
               )
             );
