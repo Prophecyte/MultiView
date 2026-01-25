@@ -206,6 +206,81 @@ export const handler = async (event) => {
       return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
     }
 
+    // PUT /profile - Update user profile
+    if (event.httpMethod === 'PUT' && path === '/profile') {
+      const user = await getUserFromToken(event.headers.authorization || event.headers.Authorization);
+      if (!user) {
+        return { statusCode: 401, headers, body: JSON.stringify({ error: 'Not authenticated' }) };
+      }
+
+      const { displayName } = body;
+      if (!displayName || !displayName.trim()) {
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'Display name is required' }) };
+      }
+
+      await sql`UPDATE users SET display_name = ${displayName.trim()} WHERE id = ${user.id}`;
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
+    }
+
+    // PUT /email - Update user email
+    if (event.httpMethod === 'PUT' && path === '/email') {
+      const user = await getUserFromToken(event.headers.authorization || event.headers.Authorization);
+      if (!user) {
+        return { statusCode: 401, headers, body: JSON.stringify({ error: 'Not authenticated' }) };
+      }
+
+      const { newEmail, password } = body;
+      if (!newEmail || !password) {
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'Email and password are required' }) };
+      }
+
+      // Verify current password
+      const [fullUser] = await sql`SELECT password_hash FROM users WHERE id = ${user.id}`;
+      const validPassword = await bcrypt.compare(password, fullUser.password_hash);
+      if (!validPassword) {
+        return { statusCode: 401, headers, body: JSON.stringify({ error: 'Incorrect password' }) };
+      }
+
+      // Check if new email is already taken
+      const [existing] = await sql`SELECT id FROM users WHERE email = ${newEmail.toLowerCase()} AND id != ${user.id}`;
+      if (existing) {
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'Email already in use' }) };
+      }
+
+      await sql`UPDATE users SET email = ${newEmail.toLowerCase()} WHERE id = ${user.id}`;
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
+    }
+
+    // PUT /password - Update user password
+    if (event.httpMethod === 'PUT' && path === '/password') {
+      const user = await getUserFromToken(event.headers.authorization || event.headers.Authorization);
+      if (!user) {
+        return { statusCode: 401, headers, body: JSON.stringify({ error: 'Not authenticated' }) };
+      }
+
+      const { currentPassword, newPassword } = body;
+      if (!currentPassword || !newPassword) {
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'Current and new password are required' }) };
+      }
+
+      if (newPassword.length < 6) {
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'Password must be at least 6 characters' }) };
+      }
+
+      // Verify current password
+      const [fullUser] = await sql`SELECT password_hash FROM users WHERE id = ${user.id}`;
+      const validPassword = await bcrypt.compare(currentPassword, fullUser.password_hash);
+      if (!validPassword) {
+        return { statusCode: 401, headers, body: JSON.stringify({ error: 'Incorrect current password' }) };
+      }
+
+      // Hash new password and update
+      const newHash = await bcrypt.hash(newPassword, 10);
+      await sql`UPDATE users SET password_hash = ${newHash} WHERE id = ${user.id}`;
+      
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
+    }
+
     // DELETE /account - Delete user account
     if (event.httpMethod === 'DELETE' && path === '/account') {
       const user = await getUserFromToken(event.headers.authorization || event.headers.Authorization);
