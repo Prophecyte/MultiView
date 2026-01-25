@@ -275,9 +275,20 @@ function YouTubePlayer(props) {
         },
         events: {
           onReady: function() {
-            console.log('YT Player ready');
+            console.log('YT Player ready, initial time:', (playbackTime || 0).toFixed(1), 'state:', playbackState);
             isReady.current = true;
             lastKnownTime.current = playbackTime || 0;
+            
+            // Seek to the exact time (start param only handles whole seconds)
+            if (playbackTime && playbackTime > 1) {
+              console.log('>>> Initial seek to:', playbackTime.toFixed(1));
+              playerRef.current.seekTo(playbackTime, true);
+            }
+            
+            // Apply correct playback state
+            if (playbackState === 'playing') {
+              playerRef.current.playVideo();
+            }
             
             // Monitor for seeks - check frequently for instant response
             seekCheckInterval.current = setInterval(function() {
@@ -1479,7 +1490,7 @@ function Room(props) {
           
           // Only update video if ID actually changed
           if (serverVideoId !== currentVideoIdRef.current) {
-            console.log('>>> NEW VIDEO:', serverVideoId, 'state:', serverState, 'time:', serverTime);
+            console.log('>>> NEW VIDEO:', serverVideoId, 'state:', serverState, 'time:', serverTime.toFixed(1));
             currentVideoIdRef.current = serverVideoId;
             lastSyncedState.current = serverState;
             lastSyncedTime.current = serverTime;
