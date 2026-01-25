@@ -10,7 +10,7 @@ var useCallback = React.useCallback;
 
 var GOOGLE_CLIENT_ID = window.APP_CONFIG?.GOOGLE_CLIENT_ID || '';
 var API_BASE = '/api';
-var SYNC_INTERVAL = 1500; // Faster sync for better responsiveness
+var SYNC_INTERVAL = 800; // Fast sync for movie-like experience
 
 // ============================================
 // API Client
@@ -244,6 +244,7 @@ function YouTubePlayer(props) {
   var lastCommandTime = useRef(0);
   var lastKnownTime = useRef(0);
   var seekCheckInterval = useRef(null);
+  var lastReportedSeek = useRef(0);
 
   // Load YouTube API once
   useEffect(function() {
@@ -276,37 +277,50 @@ function YouTubePlayer(props) {
             isReady.current = true;
             lastKnownTime.current = playbackTime || 0;
             
-            // Start monitoring for seeks
+            // Monitor for seeks - check frequently for instant response
             seekCheckInterval.current = setInterval(function() {
               if (!playerRef.current || !isReady.current) return;
-              if (Date.now() - lastCommandTime.current < 1000) return;
+              if (Date.now() - lastCommandTime.current < 500) return;
               
               try {
                 var currentTime = playerRef.current.getCurrentTime();
-                var timeDiff = Math.abs(currentTime - lastKnownTime.current);
+                var expectedTime = lastKnownTime.current;
+                var playerState = playerRef.current.getPlayerState();
                 
-                // If time jumped more than 3 seconds, user seeked
-                if (timeDiff > 3 && lastKnownTime.current > 0) {
-                  console.log('YT: User seeked to', currentTime);
+                // Account for normal playback (if playing, time advances ~0.2s per check)
+                if (playerState === 1) { // Playing
+                  expectedTime += 0.25; // Expected advance per 200ms check
+                }
+                
+                var timeDiff = Math.abs(currentTime - expectedTime);
+                
+                // If time jumped more than 1.5 seconds, user seeked
+                if (timeDiff > 1.5 && Math.abs(currentTime - lastReportedSeek.current) > 1) {
+                  console.log('YT: User seeked to', currentTime.toFixed(1));
+                  lastReportedSeek.current = currentTime;
                   if (onSeek) {
                     onSeek(currentTime);
                   }
                 }
                 lastKnownTime.current = currentTime;
               } catch (e) {}
-            }, 500);
+            }, 200); // Check every 200ms for responsive seek detection
           },
           onStateChange: function(event) {
             // Ignore events triggered by our commands
-            if (Date.now() - lastCommandTime.current < 1000) return;
+            if (Date.now() - lastCommandTime.current < 500) return;
             
             // YT states: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering
             if (event.data === 1 && onStateChange) {
-              console.log('YT: User played');
-              onStateChange('playing', playerRef.current.getCurrentTime());
+              var time = playerRef.current.getCurrentTime();
+              console.log('YT: User played at', time.toFixed(1));
+              lastKnownTime.current = time;
+              onStateChange('playing', time);
             } else if (event.data === 2 && onStateChange) {
-              console.log('YT: User paused');
-              onStateChange('paused', playerRef.current.getCurrentTime());
+              var time = playerRef.current.getCurrentTime();
+              console.log('YT: User paused at', time.toFixed(1));
+              lastKnownTime.current = time;
+              onStateChange('paused', time);
             }
           }
         }
@@ -354,7 +368,7 @@ function YouTubePlayer(props) {
     }
   }, [playbackState]);
 
-  // Apply time sync from server
+  // Apply time sync from server - instant sync
   useEffect(function() {
     if (!isReady.current || !playerRef.current) return;
     if (playbackTime === undefined || playbackTime === null) return;
@@ -363,11 +377,12 @@ function YouTubePlayer(props) {
       var currentTime = playerRef.current.getCurrentTime();
       var timeDiff = Math.abs(currentTime - playbackTime);
       
-      // Only seek if difference is more than 3 seconds
-      if (timeDiff > 3) {
-        console.log('>>> Seeking to synced time:', playbackTime, '(was at', currentTime, ')');
+      // Sync if difference is more than 1.5 seconds
+      if (timeDiff > 1.5) {
+        console.log('>>> Seeking to synced time:', playbackTime.toFixed(1), '(was at', currentTime.toFixed(1), ')');
         lastCommandTime.current = Date.now();
         lastKnownTime.current = playbackTime;
+        lastReportedSeek.current = playbackTime;
         playerRef.current.seekTo(playbackTime, true);
       }
     } catch (e) {
@@ -1096,15 +1111,24 @@ function GuestJoinModal(props) {
   var name = _name[0];
   var setName = _name[1];
 
+  function generateGuestName() {
+    return 'Guest ' + Math.floor(Math.random() * 9000 + 1000);
+  }
+
+  function handleJoin() {
+    var displayName = name.trim() || generateGuestName();
+    props.onJoin(displayName);
+  }
+
   return React.createElement('div', { className: 'modal-overlay' },
     React.createElement('div', { className: 'modal guest-modal' },
       React.createElement('div', { className: 'guest-modal-icon' }, '🐉'),
       React.createElement('h2', null, 'Join Room'),
-      React.createElement('p', null, 'Enter a display name to join'),
+      React.createElement('p', null, 'Enter a display name or join anonymously'),
       React.createElement('div', { className: 'modal-input-group' },
-        React.createElement('input', { type: 'text', value: name, onChange: function(e) { setName(e.target.value); }, placeholder: 'Your name', autoFocus: true, onKeyDown: function(e) { if (e.key === 'Enter') props.onJoin(name.trim() || 'Guest'); } })
+        React.createElement('input', { type: 'text', value: name, onChange: function(e) { setName(e.target.value); }, placeholder: 'Your name (optional)', autoFocus: true, onKeyDown: function(e) { if (e.key === 'Enter') handleJoin(); } })
       ),
-      React.createElement('button', { className: 'btn primary', onClick: function() { props.onJoin(name.trim() || 'Guest'); } }, 'Join as Guest'),
+      React.createElement('button', { className: 'btn primary', onClick: handleJoin }, name.trim() ? 'Join as ' + name.trim() : 'Join as Guest'),
       React.createElement('div', { className: 'guest-modal-divider' }, React.createElement('span', null, 'or')),
       React.createElement('button', { className: 'btn secondary', onClick: props.onLogin }, 'Sign in / Create Account')
     )
@@ -1436,7 +1460,7 @@ function Room(props) {
       
       // Skip sync if we made a local change in the last 2 seconds
       var timeSinceLocalChange = Date.now() - (lastLocalChange.current || 0);
-      if (timeSinceLocalChange < 2000) {
+      if (timeSinceLocalChange < 1000) {
         return;
       }
       
@@ -1468,7 +1492,7 @@ function Room(props) {
             // Same video - check for state or time changes
             var stateChanged = serverState !== lastSyncedState.current;
             var timeDiff = Math.abs(serverTime - lastSyncedTime.current);
-            var timeChanged = timeDiff > 3; // Only sync if > 3 seconds difference
+            var timeChanged = timeDiff > 1.5; // Sync if > 1.5 seconds difference
             
             if (stateChanged) {
               console.log('>>> STATE CHANGE:', lastSyncedState.current, '->', serverState);
@@ -1765,7 +1789,7 @@ function Room(props) {
             onStateChange: handlePlayerStateChange,
             onSeek: handlePlayerSeek,
             onEnded: playNext,
-            isLocalChange: (Date.now() - lastLocalChange.current) < 2000
+            isLocalChange: (Date.now() - lastLocalChange.current) < 1000
           }),
           React.createElement('div', { className: 'playback-controls' },
             React.createElement('button', { className: 'btn sm', onClick: playPrev, disabled: !activePlaylist || currentIndex <= 0 }, React.createElement(Icon, { name: 'prev', size: 'sm' }), ' Prev'),
