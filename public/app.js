@@ -234,19 +234,100 @@ function DragonFire() {
 function YouTubePlayer(props) {
   var videoId = props.videoId;
   var playbackState = props.playbackState;
+  var onStateChange = props.onStateChange;
   
-  // Simple embed URL - autoplay based on playbackState
-  var autoplay = playbackState === 'playing' ? 1 : 0;
-  var embedUrl = 'https://www.youtube.com/embed/' + videoId + '?autoplay=' + autoplay + '&rel=0&modestbranding=1';
-  
-  console.log('YouTubePlayer rendering:', videoId, 'autoplay:', autoplay);
+  var containerRef = useRef(null);
+  var playerRef = useRef(null);
+  var isReady = useRef(false);
+  var lastCommandTime = useRef(0);
 
-  return React.createElement('iframe', {
-    key: videoId + '-' + autoplay,
-    src: embedUrl,
-    style: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' },
-    allow: 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen',
-    allowFullScreen: true
+  // Load YouTube API once
+  useEffect(function() {
+    if (window.YT && window.YT.Player) return;
+    
+    if (!document.getElementById('youtube-api')) {
+      var tag = document.createElement('script');
+      tag.id = 'youtube-api';
+      tag.src = 'https://www.youtube.com/iframe_api';
+      document.head.appendChild(tag);
+    }
+  }, []);
+
+  // Create player when API is ready
+  useEffect(function() {
+    function initPlayer() {
+      if (!containerRef.current || playerRef.current) return;
+      
+      playerRef.current = new window.YT.Player(containerRef.current, {
+        videoId: videoId,
+        playerVars: {
+          autoplay: playbackState === 'playing' ? 1 : 0,
+          rel: 0,
+          modestbranding: 1
+        },
+        events: {
+          onReady: function() {
+            console.log('YT Player ready');
+            isReady.current = true;
+          },
+          onStateChange: function(event) {
+            // Ignore events triggered by our commands
+            if (Date.now() - lastCommandTime.current < 1000) return;
+            
+            // YT states: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering
+            if (event.data === 1 && onStateChange) {
+              console.log('YT: User played');
+              onStateChange('playing', playerRef.current.getCurrentTime());
+            } else if (event.data === 2 && onStateChange) {
+              console.log('YT: User paused');
+              onStateChange('paused', playerRef.current.getCurrentTime());
+            }
+          }
+        }
+      });
+    }
+
+    // Wait for YT API
+    if (window.YT && window.YT.Player) {
+      initPlayer();
+    } else {
+      window.onYouTubeIframeAPIReady = initPlayer;
+    }
+
+    return function() {
+      if (playerRef.current && playerRef.current.destroy) {
+        playerRef.current.destroy();
+        playerRef.current = null;
+        isReady.current = false;
+      }
+    };
+  }, [videoId]);
+
+  // Apply playback state changes from sync
+  useEffect(function() {
+    if (!isReady.current || !playerRef.current) return;
+    
+    try {
+      var currentState = playerRef.current.getPlayerState();
+      // 1 = playing, 2 = paused
+      
+      if (playbackState === 'playing' && currentState !== 1) {
+        console.log('>>> Sending PLAY command');
+        lastCommandTime.current = Date.now();
+        playerRef.current.playVideo();
+      } else if (playbackState === 'paused' && currentState !== 2) {
+        console.log('>>> Sending PAUSE command');
+        lastCommandTime.current = Date.now();
+        playerRef.current.pauseVideo();
+      }
+    } catch (e) {
+      console.error('YT command error:', e);
+    }
+  }, [playbackState]);
+
+  return React.createElement('div', {
+    ref: containerRef,
+    style: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }
   });
 }
 
@@ -338,7 +419,8 @@ function VideoPlayer(props) {
     return React.createElement('div', { className: 'video-frame' },
       React.createElement(YouTubePlayer, {
         videoId: parsed.id,
-        playbackState: playbackState
+        playbackState: playbackState,
+        onStateChange: onStateChange
       })
     );
   }
@@ -1390,6 +1472,8 @@ function Room(props) {
 
   function handlePlayerStateChange(state, time) {
     console.log('Player state changed:', state, 'at', time);
+    lastSyncedState.current = state;
+    lastLocalChange.current = Date.now();
     setPlaybackState(state);
     setPlaybackTime(time);
     broadcastState(currentVideo, state, time);
