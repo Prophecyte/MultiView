@@ -90,6 +90,24 @@ api.auth = {
       return null;
     });
   },
+  updateProfile: function(displayName) {
+    return api.request('/auth/profile', { 
+      method: 'PUT', 
+      body: JSON.stringify({ displayName: displayName }) 
+    });
+  },
+  updateEmail: function(newEmail, password) {
+    return api.request('/auth/email', { 
+      method: 'PUT', 
+      body: JSON.stringify({ newEmail: newEmail, password: password }) 
+    });
+  },
+  updatePassword: function(currentPassword, newPassword) {
+    return api.request('/auth/password', { 
+      method: 'PUT', 
+      body: JSON.stringify({ currentPassword: currentPassword, newPassword: newPassword }) 
+    });
+  },
   deleteAccount: function() {
     return api.request('/auth/account', { method: 'DELETE' }).then(function() {
       api.clearToken();
@@ -781,6 +799,26 @@ function SettingsModal(props) {
   var displayName = _displayName[0];
   var setDisplayName = _displayName[1];
   
+  var _newEmail = useState('');
+  var newEmail = _newEmail[0];
+  var setNewEmail = _newEmail[1];
+  
+  var _emailPassword = useState('');
+  var emailPassword = _emailPassword[0];
+  var setEmailPassword = _emailPassword[1];
+  
+  var _currentPassword = useState('');
+  var currentPassword = _currentPassword[0];
+  var setCurrentPassword = _currentPassword[1];
+  
+  var _newPassword = useState('');
+  var newPassword = _newPassword[0];
+  var setNewPassword = _newPassword[1];
+  
+  var _confirmPassword = useState('');
+  var confirmPassword = _confirmPassword[0];
+  var setConfirmPassword = _confirmPassword[1];
+  
   var _message = useState(null);
   var message = _message[0];
   var setMessage = _message[1];
@@ -791,9 +829,59 @@ function SettingsModal(props) {
 
   function handleSaveProfile() {
     if (!displayName.trim()) return;
-    onUpdate(Object.assign({}, user, { displayName: displayName.trim() }));
-    setMessage({ text: 'Saved!', type: 'success' });
-    setTimeout(function() { setMessage(null); }, 2000);
+    setLoading(true);
+    api.auth.updateProfile(displayName.trim()).then(function() {
+      onUpdate(Object.assign({}, user, { displayName: displayName.trim() }));
+      setMessage({ text: 'Profile saved!', type: 'success' });
+      setLoading(false);
+    }).catch(function(err) {
+      setMessage({ text: err.message, type: 'error' });
+      setLoading(false);
+    });
+  }
+
+  function handleChangeEmail() {
+    if (!newEmail.trim() || !emailPassword) {
+      setMessage({ text: 'Please fill in all fields', type: 'error' });
+      return;
+    }
+    setLoading(true);
+    api.auth.updateEmail(newEmail.trim(), emailPassword).then(function() {
+      onUpdate(Object.assign({}, user, { email: newEmail.trim() }));
+      setMessage({ text: 'Email updated!', type: 'success' });
+      setNewEmail('');
+      setEmailPassword('');
+      setLoading(false);
+    }).catch(function(err) {
+      setMessage({ text: err.message, type: 'error' });
+      setLoading(false);
+    });
+  }
+
+  function handleChangePassword() {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setMessage({ text: 'Please fill in all fields', type: 'error' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setMessage({ text: 'New passwords do not match', type: 'error' });
+      return;
+    }
+    if (newPassword.length < 6) {
+      setMessage({ text: 'Password must be at least 6 characters', type: 'error' });
+      return;
+    }
+    setLoading(true);
+    api.auth.updatePassword(currentPassword, newPassword).then(function() {
+      setMessage({ text: 'Password changed!', type: 'success' });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setLoading(false);
+    }).catch(function(err) {
+      setMessage({ text: err.message, type: 'error' });
+      setLoading(false);
+    });
   }
 
   function handleDeleteAccount() {
@@ -807,21 +895,53 @@ function SettingsModal(props) {
       React.createElement('button', { className: 'modal-close', onClick: onClose }, '×'),
       React.createElement('h2', null, 'Settings'),
       React.createElement('div', { className: 'settings-tabs' },
-        React.createElement('button', { className: 'settings-tab' + (tab === 'profile' ? ' active' : ''), onClick: function() { setTab('profile'); } }, 'Profile'),
-        React.createElement('button', { className: 'settings-tab' + (tab === 'danger' ? ' active' : ''), onClick: function() { setTab('danger'); } }, 'Account')
+        React.createElement('button', { className: 'settings-tab' + (tab === 'profile' ? ' active' : ''), onClick: function() { setTab('profile'); setMessage(null); } }, 'Profile'),
+        React.createElement('button', { className: 'settings-tab' + (tab === 'email' ? ' active' : ''), onClick: function() { setTab('email'); setMessage(null); } }, 'Email'),
+        React.createElement('button', { className: 'settings-tab' + (tab === 'password' ? ' active' : ''), onClick: function() { setTab('password'); setMessage(null); } }, 'Password'),
+        React.createElement('button', { className: 'settings-tab' + (tab === 'danger' ? ' active' : ''), onClick: function() { setTab('danger'); setMessage(null); } }, 'Account')
       ),
       message && React.createElement('div', { className: message.type === 'error' ? 'error-message' : 'success-message' }, message.text),
+      
       tab === 'profile' && React.createElement('div', { className: 'settings-content' },
         React.createElement('div', { className: 'modal-input-group' },
           React.createElement('label', null, 'Display Name'),
           React.createElement('input', { type: 'text', value: displayName, onChange: function(e) { setDisplayName(e.target.value); } })
         ),
+        React.createElement('button', { className: 'btn primary', onClick: handleSaveProfile, disabled: loading }, loading ? 'Saving...' : 'Save Changes')
+      ),
+      
+      tab === 'email' && React.createElement('div', { className: 'settings-content' },
         React.createElement('div', { className: 'modal-input-group' },
-          React.createElement('label', null, 'Email'),
+          React.createElement('label', null, 'Current Email'),
           React.createElement('input', { type: 'email', value: user.email, disabled: true })
         ),
-        React.createElement('button', { className: 'btn primary', onClick: handleSaveProfile }, 'Save Changes')
+        React.createElement('div', { className: 'modal-input-group' },
+          React.createElement('label', null, 'New Email'),
+          React.createElement('input', { type: 'email', value: newEmail, onChange: function(e) { setNewEmail(e.target.value); }, placeholder: 'Enter new email' })
+        ),
+        React.createElement('div', { className: 'modal-input-group' },
+          React.createElement('label', null, 'Current Password'),
+          React.createElement('input', { type: 'password', value: emailPassword, onChange: function(e) { setEmailPassword(e.target.value); }, placeholder: 'Confirm with password' })
+        ),
+        React.createElement('button', { className: 'btn primary', onClick: handleChangeEmail, disabled: loading }, loading ? 'Updating...' : 'Update Email')
       ),
+      
+      tab === 'password' && React.createElement('div', { className: 'settings-content' },
+        React.createElement('div', { className: 'modal-input-group' },
+          React.createElement('label', null, 'Current Password'),
+          React.createElement('input', { type: 'password', value: currentPassword, onChange: function(e) { setCurrentPassword(e.target.value); }, placeholder: 'Enter current password' })
+        ),
+        React.createElement('div', { className: 'modal-input-group' },
+          React.createElement('label', null, 'New Password'),
+          React.createElement('input', { type: 'password', value: newPassword, onChange: function(e) { setNewPassword(e.target.value); }, placeholder: 'Enter new password' })
+        ),
+        React.createElement('div', { className: 'modal-input-group' },
+          React.createElement('label', null, 'Confirm New Password'),
+          React.createElement('input', { type: 'password', value: confirmPassword, onChange: function(e) { setConfirmPassword(e.target.value); }, placeholder: 'Confirm new password' })
+        ),
+        React.createElement('button', { className: 'btn primary', onClick: handleChangePassword, disabled: loading }, loading ? 'Changing...' : 'Change Password')
+      ),
+      
       tab === 'danger' && React.createElement('div', { className: 'settings-content' },
         React.createElement('div', { className: 'danger-zone' },
           React.createElement('h3', null, '⚠️ Danger Zone'),
@@ -1160,11 +1280,12 @@ function Room(props) {
   var isOwner = user && user.id === hostId;
   var displayName = guestDisplayName || (user ? user.displayName : 'Guest');
 
+  // Track current video ID to prevent re-renders
+  var currentVideoIdRef = useRef(null);
+  var lastSyncedState = useRef(null);
+
   function syncRoomState() {
     api.rooms.getSync(room.id).then(function(data) {
-      // Debug: log raw server response
-      console.log('=== SYNC ===', data.room ? {url: data.room.currentVideoUrl, state: data.room.playbackState, time: data.room.playbackTime} : 'no room');
-      
       if (data.members) setConnectedUsers(data.members);
       
       if (data.playlists) {
@@ -1180,42 +1301,45 @@ function Room(props) {
       // Skip sync if we made a local change in the last 2 seconds
       var timeSinceLocalChange = Date.now() - (lastLocalChange.current || 0);
       if (timeSinceLocalChange < 2000) {
-        console.log('Skipping sync - local change was', timeSinceLocalChange, 'ms ago');
         return;
       }
       
-      // Always sync from server
+      // Sync from server
       if (data.room) {
         var serverUrl = data.room.currentVideoUrl;
         var serverState = data.room.playbackState || 'paused';
-        var serverTime = data.room.playbackTime || 0;
         
-        console.log('Server sync:', serverUrl ? serverUrl.substring(0, 50) : 'none', serverState, serverTime);
-        
-        // Sync video URL
         if (serverUrl) {
-          if (!currentVideo || currentVideo.url !== serverUrl) {
-            console.log('>>> Syncing new video:', serverUrl);
+          // Extract video ID for comparison
+          var serverParsed = parseVideoUrl(serverUrl);
+          var serverVideoId = serverParsed ? serverParsed.id : serverUrl;
+          
+          // Only update video if ID actually changed
+          if (serverVideoId !== currentVideoIdRef.current) {
+            console.log('>>> NEW VIDEO:', serverVideoId, 'state:', serverState);
+            currentVideoIdRef.current = serverVideoId;
+            lastSyncedState.current = serverState;
             setCurrentVideo({ 
-              id: 'synced', 
+              id: serverVideoId, 
               title: data.room.currentVideoTitle || serverUrl, 
               url: serverUrl 
             });
-          }
-          
-          // Always sync state
-          if (serverState !== playbackState) {
-            console.log('>>> Syncing state:', serverState);
+            setPlaybackState(serverState);
+          } else if (serverState !== lastSyncedState.current) {
+            // Same video but state changed - sync state only
+            console.log('>>> STATE CHANGE:', lastSyncedState.current, '->', serverState);
+            lastSyncedState.current = serverState;
             setPlaybackState(serverState);
           }
-          setPlaybackTime(serverTime);
+          // Same video, same state - do nothing
         } else {
           // No video on server
-          if (currentVideo) {
+          if (currentVideoIdRef.current) {
             console.log('>>> Clearing video');
+            currentVideoIdRef.current = null;
+            lastSyncedState.current = null;
             setCurrentVideo(null);
             setPlaybackState('paused');
-            setPlaybackTime(0);
           }
         }
       }
@@ -1273,6 +1397,9 @@ function Room(props) {
 
   function playVideo(video, index) {
     console.log('Playing video:', video.title || video.url);
+    var parsed = parseVideoUrl(video.url);
+    currentVideoIdRef.current = parsed ? parsed.id : video.url;
+    lastSyncedState.current = 'playing';
     setCurrentVideo(video);
     setCurrentIndex(index);
     setPlaybackState('playing');
@@ -1284,7 +1411,9 @@ function Room(props) {
     if (!urlInput.trim()) return;
     var parsed = parseVideoUrl(urlInput.trim());
     if (!parsed) { showNotif('Invalid URL', 'error'); return; }
-    var video = { id: 'direct_' + Date.now(), title: urlInput, url: urlInput.trim() };
+    currentVideoIdRef.current = parsed.id;
+    lastSyncedState.current = 'playing';
+    var video = { id: parsed.id, title: urlInput, url: urlInput.trim() };
     setCurrentVideo(video);
     setPlaybackState('playing');
     setPlaybackTime(0);
