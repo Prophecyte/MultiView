@@ -206,6 +206,33 @@ export const handler = async (event) => {
       return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
     }
 
+    // DELETE /account - Delete user account
+    if (event.httpMethod === 'DELETE' && path === '/account') {
+      const user = await getUserFromToken(event.headers.authorization || event.headers.Authorization);
+      
+      if (!user) {
+        return { statusCode: 401, headers, body: JSON.stringify({ error: 'Not authenticated' }) };
+      }
+
+      // Delete in order due to foreign key constraints:
+      // 1. Delete room visitors for user's rooms
+      await sql`DELETE FROM room_visitors WHERE room_id IN (SELECT id FROM rooms WHERE owner_id = ${user.id})`;
+      // 2. Delete room visitors where this user is a visitor
+      await sql`DELETE FROM room_visitors WHERE user_id = ${user.id}`;
+      // 3. Delete videos in playlists in user's rooms
+      await sql`DELETE FROM videos WHERE playlist_id IN (SELECT id FROM playlists WHERE room_id IN (SELECT id FROM rooms WHERE owner_id = ${user.id}))`;
+      // 4. Delete playlists in user's rooms
+      await sql`DELETE FROM playlists WHERE room_id IN (SELECT id FROM rooms WHERE owner_id = ${user.id})`;
+      // 5. Delete user's rooms
+      await sql`DELETE FROM rooms WHERE owner_id = ${user.id}`;
+      // 6. Delete user's sessions
+      await sql`DELETE FROM sessions WHERE user_id = ${user.id}`;
+      // 7. Delete the user
+      await sql`DELETE FROM users WHERE id = ${user.id}`;
+
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
+    }
+
     console.log('No route matched:', event.httpMethod, path);
     return { statusCode: 404, headers, body: JSON.stringify({ error: 'Not found', path, method: event.httpMethod }) };
 
