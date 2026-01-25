@@ -3225,3 +3225,347 @@ body {
   color: var(--text-muted);
   font-size: 12px;
 }
+
+/* ============================================
+   Draggable Video List
+   ============================================ */
+.video-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg-light);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  margin-bottom: 6px;
+  transition: all 0.2s ease;
+  cursor: default;
+}
+
+.video-item:hover {
+  border-color: var(--border-light);
+  background: var(--bg-hover);
+}
+
+.video-item.playing {
+  border-color: var(--gold);
+  background: var(--gold-subtle);
+}
+
+.video-item.dragging {
+  opacity: 0.5;
+  border-style: dashed;
+}
+
+.video-item.drag-over {
+  border-color: var(--gold);
+  border-style: dashed;
+  transform: translateY(2px);
+}
+
+.video-drag-handle {
+  cursor: grab;
+  color: var(--text-muted);
+  padding: 4px;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+.video-item:hover .video-drag-handle {
+  opacity: 1;
+}
+
+.video-drag-handle:active {
+  cursor: grabbing;
+}
+
+.video-play-btn {
+  background: var(--gold);
+  border: none;
+  color: var(--bg-darkest);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+
+.video-play-btn:hover {
+  background: var(--gold-light);
+  transform: scale(1.1);
+}
+
+.video-info {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.video-type-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.video-title {
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.video-info:hover .video-title {
+  color: var(--gold);
+}
+
+.video-remove-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  padding: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: all 0.2s;
+}
+
+.video-item:hover .video-remove-btn {
+  opacity: 1;
+}
+
+.video-remove-btn:hover {
+  color: var(--error);
+}
+
+/* ============================================
+   Playlist Panel
+   ============================================ */
+.playlist-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.playlist-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+}
+
+.playlist-item.active .playlist-select {
+  background: var(--gold-subtle);
+  border-color: var(--gold-dark);
+}
+
+.playlist-select {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--bg-light);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.playlist-select:hover {
+  border-color: var(--border-light);
+}
+
+.playlist-name {
+  font-size: 13px;
+}
+
+.playlist-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-dark);
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+
+.playlist-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.playlist-item:hover .playlist-actions {
+  opacity: 1;
+}
+
+.playlist-edit-input {
+  flex: 1;
+  padding: 10px 12px;
+  background: var(--bg-dark);
+  border: 1px solid var(--gold);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+/* ============================================
+   Guest Join Modal
+   ============================================ */
+.guest-modal {
+  text-align: center;
+  max-width: 360px;
+}
+
+.guest-modal-icon {
+  font-size: 64px;
+  margin-bottom: 16px;
+}
+
+.guest-modal h2 {
+  margin-bottom: 8px;
+}
+
+.guest-modal p {
+  color: var(--text-muted);
+  margin-bottom: 20px;
+}
+
+.guest-modal .modal-input-group {
+  margin-bottom: 16px;
+}
+
+.guest-modal .modal-input-group input {
+  text-align: center;
+  font-size: 16px;
+}
+
+.guest-modal-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.guest-modal-divider::before,
+.guest-modal-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-color);
+}
+
+/* ============================================
+   Context Menu Fix (Higher Z-Index)
+   ============================================ */
+.context-menu {
+  position: fixed !important;
+  background: var(--bg-medium);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  min-width: 160px;
+  z-index: 10000 !important;
+  animation: fadeIn 0.1s;
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.context-menu-item:hover {
+  background: var(--bg-hover);
+}
+
+.context-menu-item.danger {
+  color: var(--error);
+}
+
+.context-menu-item.danger:hover {
+  background: rgba(231, 76, 60, 0.1);
+}
+
+/* ============================================
+   User Badge Enhancements
+   ============================================ */
+.guest-tag-badge {
+  font-size: 9px;
+  color: var(--text-muted);
+  margin-left: 4px;
+  opacity: 0.7;
+}
+
+.offline-divider {
+  width: 100%;
+  padding: 6px 12px;
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-top: 1px solid var(--border-color);
+  margin-top: 8px;
+}
+
+.user-badge.offline {
+  opacity: 0.5;
+}
+
+.user-badge.offline .status-indicator {
+  background: var(--text-muted);
+  box-shadow: none;
+}
+
+/* ============================================
+   Room Title
+   ============================================ */
+.room-title {
+  font-family: 'Cinzel', serif;
+  font-size: 18px;
+  color: var(--gold);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+/* ============================================
+   Empty States
+   ============================================ */
+.empty-playlists {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.empty-queue {
+  padding: 30px 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.empty-queue p {
+  margin: 0;
+}
