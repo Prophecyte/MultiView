@@ -1505,6 +1505,7 @@ function Room(props) {
   var room = props.room;
   var hostId = props.hostId;
   var guestDisplayName = props.guestDisplayName;
+  var onKicked = props.onKicked;
   
   var _playlists = useState([]);
   var playlists = _playlists[0];
@@ -1566,10 +1567,22 @@ function Room(props) {
   var currentVideoIdRef = useRef(null);
   var lastSyncedState = useRef(null);
   var lastSyncedTime = useRef(0);
+  var isInitialSync = useRef(true); // Prevent broadcasting during initial join
 
   function syncRoomState() {
     api.rooms.getSync(room.id).then(function(data) {
-      if (data.members) setConnectedUsers(data.members);
+      // Check if current user was kicked
+      if (data.members) {
+        var stillInRoom = data.members.some(function(m) {
+          return (m.visitorId === visitorId) || (m.guestId === visitorId);
+        });
+        if (!stillInRoom && !isInitialSync.current) {
+          console.log('You have been kicked from the room');
+          if (onKicked) onKicked();
+          return;
+        }
+        setConnectedUsers(data.members);
+      }
       
       if (data.playlists) {
         setPlaylists(data.playlists);
@@ -1581,7 +1594,7 @@ function Room(props) {
         }
       }
       
-      // Skip sync if we made a local change in the last 2 seconds
+      // Skip sync if we made a local change recently
       var timeSinceLocalChange = Date.now() - (lastLocalChange.current || 0);
       if (timeSinceLocalChange < 500) {
         return;
@@ -1649,6 +1662,7 @@ function Room(props) {
 
   useEffect(function() {
     console.log('Joining room and starting sync...');
+    isInitialSync.current = true; // Reset on join
     
     // Check if this is a returning guest
     var returningGuestName = localStorage.getItem('returning_guest_' + room.id);
@@ -1659,6 +1673,12 @@ function Room(props) {
     api.rooms.join(room.id, displayName, returningGuestName).then(function() {
       console.log('Joined room, syncing...');
       syncRoomState();
+      
+      // Allow broadcasting after initial sync settles (3 seconds)
+      setTimeout(function() {
+        console.log('Initial sync complete, enabling broadcasts');
+        isInitialSync.current = false;
+      }, 3000);
     }).catch(console.error);
     
     // Regular sync interval
@@ -1707,6 +1727,12 @@ function Room(props) {
   }
 
   function broadcastState(video, state, time) {
+    // Don't broadcast during initial sync to prevent video jumping for others
+    if (isInitialSync.current) {
+      console.log('>>> SKIPPING BROADCAST (initial sync)');
+      return;
+    }
+    
     console.log('>>> BROADCASTING:', video ? video.url : null, state, time);
     lastLocalChange.current = Date.now();
     
@@ -2100,6 +2126,13 @@ function MultiviewApp() {
     setCurrentRoom(null);
   }
 
+  function handleKicked() {
+    alert('You have been kicked from the room.');
+    location.hash = '';
+    setCurrentView('home');
+    setCurrentRoom(null);
+  }
+
   function handleLogout() {
     api.auth.logout().then(function() {
       setUser(null);
@@ -2117,7 +2150,7 @@ function MultiviewApp() {
 
   if (!user && currentView !== 'room') return React.createElement(AuthScreen, { onAuth: function(u) { setUser(u); var ri = parseRoomUrl(); if (ri) handleJoinFromUrl(ri.hostId, ri.roomId, u); } });
 
-  if (currentView === 'room' && currentRoom) return React.createElement(Room, { user: user, room: currentRoom, hostId: roomHostId, guestDisplayName: guestDisplayName, onHome: user ? handleGoHome : null, onLogout: handleLogout, onUpdateUser: setUser });
+  if (currentView === 'room' && currentRoom) return React.createElement(Room, { user: user, room: currentRoom, hostId: roomHostId, guestDisplayName: guestDisplayName, onHome: user ? handleGoHome : null, onLogout: handleLogout, onUpdateUser: setUser, onKicked: handleKicked });
 
   if (user) return React.createElement(HomePage, { user: user, onEnterRoom: handleEnterRoom, onLogout: handleLogout, onUpdateUser: setUser });
 
