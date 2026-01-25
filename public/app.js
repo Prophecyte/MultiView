@@ -121,9 +121,22 @@ api.rooms = {
   create: function(name) { return api.request('/rooms', { method: 'POST', body: JSON.stringify({ name: name }) }).then(function(d) { return d.room; }); },
   update: function(roomId, updates) { return api.request('/rooms/' + roomId, { method: 'PUT', body: JSON.stringify(updates) }).then(function(d) { return d.room; }); },
   delete: function(roomId) { return api.request('/rooms/' + roomId, { method: 'DELETE' }); },
-  join: function(roomId, displayName) {
+  join: function(roomId, displayName, returningGuestName) {
     var guestId = api.getToken() ? null : api.getGuestId();
-    return api.request('/rooms/' + roomId + '/join', { method: 'POST', body: JSON.stringify({ displayName: displayName, guestId: guestId }) });
+    return api.request('/rooms/' + roomId + '/join', { 
+      method: 'POST', 
+      body: JSON.stringify({ 
+        displayName: displayName, 
+        guestId: guestId,
+        returningGuestName: returningGuestName || null
+      }) 
+    }).then(function(result) {
+      // If server returned a different guestId (returning guest), update local storage
+      if (result.guestId && result.guestId !== guestId) {
+        localStorage.setItem('multiview_guest_id', result.guestId);
+      }
+      return result;
+    });
   },
   kick: function(roomId, visitorId, guestId) {
     return api.request('/rooms/' + roomId + '/kick', { method: 'POST', body: JSON.stringify({ visitorId: visitorId, guestId: guestId }) });
@@ -561,6 +574,20 @@ function ConnectedUsers(props) {
   var _contextMenu = useState(null);
   var contextMenu = _contextMenu[0];
   var setContextMenu = _contextMenu[1];
+  
+  var _renameModal = useState(null);
+  var renameModal = _renameModal[0];
+  var setRenameModal = _renameModal[1];
+  
+  var _colorModal = useState(null);
+  var colorModal = _colorModal[0];
+  var setColorModal = _colorModal[1];
+  
+  var _renameValue = useState('');
+  var renameValue = _renameValue[0];
+  var setRenameValue = _renameValue[1];
+
+  var colors = ['#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#1abc9c', '#3498db', '#9b59b6', '#e91e63', '#607d8b', '#795548', '#00bcd4', '#8bc34a'];
 
   function handleRightClick(e, user) {
     e.preventDefault();
@@ -574,6 +601,40 @@ function ConnectedUsers(props) {
     document.addEventListener('click', close);
     return function() { document.removeEventListener('click', close); };
   }, []);
+
+  function openRenameModal(user) {
+    setRenameValue(user.displayName || '');
+    setRenameModal(user);
+    setContextMenu(null);
+  }
+
+  function openColorModal(user) {
+    setColorModal(user);
+    setContextMenu(null);
+  }
+
+  function submitRename() {
+    if (renameValue.trim() && renameModal) {
+      var isGuest = renameModal.guestId || (renameModal.visitorId && renameModal.visitorId.startsWith('guest_'));
+      onRename(isGuest ? null : renameModal.visitorId, isGuest ? (renameModal.guestId || renameModal.visitorId) : null, renameValue.trim());
+    }
+    setRenameModal(null);
+    setRenameValue('');
+  }
+
+  function selectColor(color) {
+    if (colorModal) {
+      var isGuest = colorModal.guestId || (colorModal.visitorId && colorModal.visitorId.startsWith('guest_'));
+      onColorChange(isGuest ? null : colorModal.visitorId, isGuest ? (colorModal.guestId || colorModal.visitorId) : null, color);
+    }
+    setColorModal(null);
+  }
+
+  function canEditUser(user) {
+    var visId = user.visitorId || user.guestId;
+    var isYou = visId === currentUserId;
+    return isYou || isHost;
+  }
 
   var onlineUsers = users.filter(function(u) { return u.status === 'online'; });
   var offlineUsers = users.filter(function(u) { return u.status !== 'online'; });
@@ -624,27 +685,19 @@ function ConnectedUsers(props) {
             sortedOffline.map(renderUser)
           )
     ),
+    
+    // Context menu
     contextMenu && React.createElement('div', { 
       className: 'context-menu', 
       style: { position: 'fixed', top: contextMenu.y, left: contextMenu.x, zIndex: 10000 },
       onClick: function(e) { e.stopPropagation(); }
     },
-      React.createElement('button', { className: 'context-menu-item', onClick: function() { 
-        var name = prompt('New display name:', contextMenu.user.displayName);
-        if (name && name.trim()) {
-          var isGuest = contextMenu.user.guestId || (contextMenu.user.visitorId && contextMenu.user.visitorId.startsWith('guest_'));
-          onRename(isGuest ? null : contextMenu.user.visitorId, isGuest ? (contextMenu.user.guestId || contextMenu.user.visitorId) : null, name.trim());
-        }
-        setContextMenu(null);
-      } }, React.createElement(Icon, { name: 'edit', size: 'sm' }), ' Rename'),
-      React.createElement('button', { className: 'context-menu-item', onClick: function() {
-        var colors = ['#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#1abc9c', '#3498db', '#9b59b6', '#e91e63', '#607d8b'];
-        var colorIdx = colors.indexOf(contextMenu.user.color);
-        var newColor = colors[(colorIdx + 1) % colors.length];
-        var isGuest = contextMenu.user.guestId || (contextMenu.user.visitorId && contextMenu.user.visitorId.startsWith('guest_'));
-        onColorChange(isGuest ? null : contextMenu.user.visitorId, isGuest ? (contextMenu.user.guestId || contextMenu.user.visitorId) : null, newColor);
-        setContextMenu(null);
-      } }, '🎨 Change Color'),
+      canEditUser(contextMenu.user) && React.createElement('button', { className: 'context-menu-item', onClick: function() { openRenameModal(contextMenu.user); } }, 
+        React.createElement(Icon, { name: 'edit', size: 'sm' }), ' Rename'
+      ),
+      canEditUser(contextMenu.user) && React.createElement('button', { className: 'context-menu-item', onClick: function() { openColorModal(contextMenu.user); } }, 
+        '🎨 Change Color'
+      ),
       isHost && contextMenu.user.visitorId !== currentUserId && React.createElement('button', { className: 'context-menu-item danger', onClick: function() {
         if (confirm('Kick ' + contextMenu.user.displayName + '?')) {
           var isGuest = contextMenu.user.guestId || (contextMenu.user.visitorId && contextMenu.user.visitorId.startsWith('guest_'));
@@ -652,6 +705,46 @@ function ConnectedUsers(props) {
         }
         setContextMenu(null);
       } }, React.createElement(Icon, { name: 'x', size: 'sm' }), ' Kick')
+    ),
+    
+    // Rename Modal
+    renameModal && React.createElement('div', { className: 'modal-overlay', onClick: function() { setRenameModal(null); } },
+      React.createElement('div', { className: 'modal settings-modal', onClick: function(e) { e.stopPropagation(); } },
+        React.createElement('button', { className: 'modal-close', onClick: function() { setRenameModal(null); } }, '×'),
+        React.createElement('h2', null, 'Change Display Name'),
+        React.createElement('div', { className: 'settings-content' },
+          React.createElement('div', { className: 'modal-input-group' },
+            React.createElement('label', null, 'Display Name'),
+            React.createElement('input', { 
+              type: 'text', 
+              value: renameValue, 
+              onChange: function(e) { setRenameValue(e.target.value); },
+              onKeyDown: function(e) { if (e.key === 'Enter') submitRename(); },
+              autoFocus: true,
+              placeholder: 'Enter display name'
+            })
+          ),
+          React.createElement('button', { className: 'btn primary', onClick: submitRename }, 'Save')
+        )
+      )
+    ),
+    
+    // Color Picker Modal
+    colorModal && React.createElement('div', { className: 'modal-overlay', onClick: function() { setColorModal(null); } },
+      React.createElement('div', { className: 'modal settings-modal', onClick: function(e) { e.stopPropagation(); } },
+        React.createElement('button', { className: 'modal-close', onClick: function() { setColorModal(null); } }, '×'),
+        React.createElement('h2', null, 'Choose Color'),
+        React.createElement('div', { className: 'color-picker-grid' },
+          colors.map(function(color) {
+            return React.createElement('button', {
+              key: color,
+              className: 'color-option' + (colorModal.color === color ? ' selected' : ''),
+              style: { backgroundColor: color },
+              onClick: function() { selectColor(color); }
+            });
+          })
+        )
+      )
     )
   );
 }
@@ -753,7 +846,6 @@ function DraggableVideoList(props) {
         React.createElement('div', { className: 'video-item-top' },
           React.createElement('div', { className: 'drag-handle' }, React.createElement(Icon, { name: 'grip', size: 'sm' })),
           React.createElement('span', { className: 'video-index' }, i + 1),
-          React.createElement('span', { className: 'video-type-icon' }, getVideoTypeIcon(parsed ? parsed.type : null)),
           isEditing 
             ? React.createElement('input', {
                 className: 'video-edit-input',
@@ -1123,6 +1215,10 @@ function GuestJoinModal(props) {
   var _name = useState('');
   var name = _name[0];
   var setName = _name[1];
+  
+  var _isReturning = useState(false);
+  var isReturning = _isReturning[0];
+  var setIsReturning = _isReturning[1];
 
   function generateGuestName() {
     return 'Guest ' + Math.floor(Math.random() * 9000 + 1000);
@@ -1130,18 +1226,32 @@ function GuestJoinModal(props) {
 
   function handleJoin() {
     var displayName = name.trim() || generateGuestName();
-    props.onJoin(displayName);
+    // Pass the name and whether they're claiming a returning session
+    props.onJoin(displayName, isReturning);
   }
 
   return React.createElement('div', { className: 'modal-overlay' },
     React.createElement('div', { className: 'modal guest-modal' },
       React.createElement('div', { className: 'guest-modal-icon' }, '🐉'),
       React.createElement('h2', null, 'Join Room'),
-      React.createElement('p', null, 'Enter a display name or join anonymously'),
+      React.createElement('p', null, isReturning ? 'Enter your previous guest name to continue' : 'Enter a display name or join anonymously'),
       React.createElement('div', { className: 'modal-input-group' },
-        React.createElement('input', { type: 'text', value: name, onChange: function(e) { setName(e.target.value); }, placeholder: 'Your name (optional)', autoFocus: true, onKeyDown: function(e) { if (e.key === 'Enter') handleJoin(); } })
+        React.createElement('input', { 
+          type: 'text', 
+          value: name, 
+          onChange: function(e) { setName(e.target.value); }, 
+          placeholder: isReturning ? 'Your previous guest name' : 'Your name (optional)', 
+          autoFocus: true, 
+          onKeyDown: function(e) { if (e.key === 'Enter') handleJoin(); } 
+        })
       ),
-      React.createElement('button', { className: 'btn primary', onClick: handleJoin }, name.trim() ? 'Join as ' + name.trim() : 'Join as Guest'),
+      React.createElement('button', { className: 'btn primary', onClick: handleJoin }, 
+        name.trim() ? (isReturning ? 'Continue as ' + name.trim() : 'Join as ' + name.trim()) : 'Join as Guest'
+      ),
+      React.createElement('div', { className: 'guest-modal-divider' }, React.createElement('span', null, 'or')),
+      !isReturning 
+        ? React.createElement('button', { className: 'btn secondary', onClick: function() { setIsReturning(true); } }, 'I was here before')
+        : React.createElement('button', { className: 'btn secondary', onClick: function() { setIsReturning(false); setName(''); } }, 'Join as new guest'),
       React.createElement('div', { className: 'guest-modal-divider' }, React.createElement('span', null, 'or')),
       React.createElement('button', { className: 'btn secondary', onClick: props.onLogin }, 'Sign in / Create Account')
     )
@@ -1539,7 +1649,14 @@ function Room(props) {
 
   useEffect(function() {
     console.log('Joining room and starting sync...');
-    api.rooms.join(room.id, displayName).then(function() {
+    
+    // Check if this is a returning guest
+    var returningGuestName = localStorage.getItem('returning_guest_' + room.id);
+    if (returningGuestName) {
+      localStorage.removeItem('returning_guest_' + room.id); // Clear after use
+    }
+    
+    api.rooms.join(room.id, displayName, returningGuestName).then(function() {
       console.log('Joined room, syncing...');
       syncRoomState();
     }).catch(console.error);
@@ -1940,8 +2057,15 @@ function MultiviewApp() {
     }).catch(function(err) { alert('Failed: ' + err.message); location.hash = ''; });
   }
 
-  function handleGuestJoin(name) {
+  function handleGuestJoin(name, isReturning) {
     if (!pendingRoom) return;
+    
+    if (isReturning && name) {
+      // Try to find existing guest session by name in this room
+      // Store the returning guest name so join can look it up
+      localStorage.setItem('returning_guest_' + pendingRoom.room.id, name);
+    }
+    
     setCurrentRoom(pendingRoom.room);
     setRoomHostId(pendingRoom.hostId);
     setGuestDisplayName(name);
