@@ -172,11 +172,30 @@ export const handler = async (event) => {
 
     // POST /rooms/:id/join - Join room
     if (event.httpMethod === 'POST' && subPath === '/join') {
-      const { displayName, guestId } = body;
+      const { displayName, guestId, returningGuestName } = body;
 
       const [room] = await sql`SELECT id, owner_id FROM rooms WHERE id = ${roomId}::uuid`;
       if (!room) {
         return { statusCode: 404, headers, body: JSON.stringify({ error: 'Room not found' }) };
+      }
+
+      let effectiveGuestId = guestId;
+      let existingDisplayName = displayName;
+
+      // If returning guest, try to find their previous session by name
+      if (!user && returningGuestName) {
+        const [existingGuest] = await sql`
+          SELECT guest_id, display_name, color FROM room_visitors 
+          WHERE room_id = ${roomId}::uuid 
+          AND guest_id IS NOT NULL 
+          AND LOWER(display_name) = LOWER(${returningGuestName})
+          ORDER BY last_seen DESC
+          LIMIT 1
+        `;
+        if (existingGuest) {
+          effectiveGuestId = existingGuest.guest_id;
+          existingDisplayName = existingGuest.display_name;
+        }
       }
 
       // Upsert room visitor - use DELETE then INSERT for reliability
@@ -197,22 +216,27 @@ export const handler = async (event) => {
             VALUES (${roomId}::uuid, ${user.id}, ${displayName || user.display_name}, NOW(), 'online')
           `;
         }
-      } else if (guestId) {
+        return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
+      } else if (effectiveGuestId) {
         const [existing] = await sql`
-          SELECT id FROM room_visitors WHERE room_id = ${roomId}::uuid AND guest_id = ${guestId}
+          SELECT id, display_name FROM room_visitors WHERE room_id = ${roomId}::uuid AND guest_id = ${effectiveGuestId}
         `;
         if (existing) {
+          // Keep the existing display name for this room if not provided
+          const nameToUse = displayName || existing.display_name || 'Guest';
           await sql`
             UPDATE room_visitors 
-            SET display_name = ${displayName || 'Guest'}, last_seen = NOW(), status = 'online'
-            WHERE room_id = ${roomId}::uuid AND guest_id = ${guestId}
+            SET display_name = ${nameToUse}, last_seen = NOW(), status = 'online'
+            WHERE room_id = ${roomId}::uuid AND guest_id = ${effectiveGuestId}
           `;
         } else {
           await sql`
             INSERT INTO room_visitors (room_id, guest_id, display_name, last_seen, status)
-            VALUES (${roomId}::uuid, ${guestId}, ${displayName || 'Guest'}, NOW(), 'online')
+            VALUES (${roomId}::uuid, ${effectiveGuestId}, ${existingDisplayName || 'Guest'}, NOW(), 'online')
           `;
         }
+        // Return the effective guest ID so client can use it
+        return { statusCode: 200, headers, body: JSON.stringify({ success: true, guestId: effectiveGuestId }) };
       }
 
       return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
