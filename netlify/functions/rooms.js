@@ -292,6 +292,14 @@ export const handler = async (event) => {
         ORDER BY is_owner DESC, rv.display_name
       `;
 
+      // Calculate actual current playback time
+      // If video is playing, add elapsed time since last update
+      let currentPlaybackTime = room.playback_time || 0;
+      if (room.playback_state === 'playing' && room.playback_updated_at) {
+        const elapsedSeconds = (Date.now() - new Date(room.playback_updated_at).getTime()) / 1000;
+        currentPlaybackTime = (room.playback_time || 0) + elapsedSeconds;
+      }
+
       return {
         statusCode: 200,
         headers,
@@ -306,7 +314,7 @@ export const handler = async (event) => {
             currentPlaylistId: room.current_playlist_id,
             playbackUpdatedAt: room.playback_updated_at,
             playbackState: room.playback_state || 'paused',
-            playbackTime: room.playback_time || 0
+            playbackTime: currentPlaybackTime
           },
           playlists,
           members: members.map(m => ({
