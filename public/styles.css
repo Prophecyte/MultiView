@@ -2105,3 +2105,55 @@ body {
     padding: 8px;
   }
 }
+
+/* ============================================
+   Video Edit Input
+   ============================================ */
+.video-edit-input {
+  flex: 1;
+  padding: 4px 8px;
+  background: var(--bg-dark);
+  border: 1px solid var(--gold);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+  min-width: 0;
+}
+
+.video-edit-input:focus {
+  box-shadow: 0 0 0 2px var(--gold-subtle);
+}
+
+/* ============================================
+   Playlist Panel Drag Handle
+   ============================================ */
+.playlist-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.playlist-item .drag-handle {
+  color: var(--text-muted);
+  cursor: grab;
+  padding: 2px;
+  margin-right: 6px;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.playlist-item:hover .drag-handle {
+  opacity: 1;
+}
+
+.playlist-item.dragging {
+  opacity: 0.5;
+  background: var(--bg-light);
+}
+
+.playlist-item.drag-over {
+  border-color: var(--gold);
+  background: var(--gold-subtle);
+}
