@@ -742,7 +742,7 @@ function DraggableVideoList(props) {
         React.createElement('div', { className: 'video-item-top' },
           React.createElement('div', { className: 'drag-handle' }, React.createElement(Icon, { name: 'grip', size: 'sm' })),
           React.createElement('span', { className: 'video-index' }, i + 1),
-          React.createElement('span', { className: 'video-type-icon' }, (parsed ? parsed.type : null)),
+          React.createElement('span', { className: 'video-type-icon' }, getVideoTypeIcon(parsed ? parsed.type : null)),
           isEditing 
             ? React.createElement('input', {
                 className: 'video-edit-input',
