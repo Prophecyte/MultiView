@@ -234,12 +234,16 @@ function DragonFire() {
 function YouTubePlayer(props) {
   var videoId = props.videoId;
   var playbackState = props.playbackState;
+  var playbackTime = props.playbackTime;
   var onStateChange = props.onStateChange;
+  var onSeek = props.onSeek;
   
   var containerRef = useRef(null);
   var playerRef = useRef(null);
   var isReady = useRef(false);
   var lastCommandTime = useRef(0);
+  var lastKnownTime = useRef(0);
+  var seekCheckInterval = useRef(null);
 
   // Load YouTube API once
   useEffect(function() {
@@ -263,12 +267,34 @@ function YouTubePlayer(props) {
         playerVars: {
           autoplay: playbackState === 'playing' ? 1 : 0,
           rel: 0,
-          modestbranding: 1
+          modestbranding: 1,
+          start: Math.floor(playbackTime || 0)
         },
         events: {
           onReady: function() {
             console.log('YT Player ready');
             isReady.current = true;
+            lastKnownTime.current = playbackTime || 0;
+            
+            // Start monitoring for seeks
+            seekCheckInterval.current = setInterval(function() {
+              if (!playerRef.current || !isReady.current) return;
+              if (Date.now() - lastCommandTime.current < 1000) return;
+              
+              try {
+                var currentTime = playerRef.current.getCurrentTime();
+                var timeDiff = Math.abs(currentTime - lastKnownTime.current);
+                
+                // If time jumped more than 3 seconds, user seeked
+                if (timeDiff > 3 && lastKnownTime.current > 0) {
+                  console.log('YT: User seeked to', currentTime);
+                  if (onSeek) {
+                    onSeek(currentTime);
+                  }
+                }
+                lastKnownTime.current = currentTime;
+              } catch (e) {}
+            }, 500);
           },
           onStateChange: function(event) {
             // Ignore events triggered by our commands
@@ -295,6 +321,9 @@ function YouTubePlayer(props) {
     }
 
     return function() {
+      if (seekCheckInterval.current) {
+        clearInterval(seekCheckInterval.current);
+      }
       if (playerRef.current && playerRef.current.destroy) {
         playerRef.current.destroy();
         playerRef.current = null;
@@ -325,6 +354,27 @@ function YouTubePlayer(props) {
     }
   }, [playbackState]);
 
+  // Apply time sync from server
+  useEffect(function() {
+    if (!isReady.current || !playerRef.current) return;
+    if (playbackTime === undefined || playbackTime === null) return;
+    
+    try {
+      var currentTime = playerRef.current.getCurrentTime();
+      var timeDiff = Math.abs(currentTime - playbackTime);
+      
+      // Only seek if difference is more than 3 seconds
+      if (timeDiff > 3) {
+        console.log('>>> Seeking to synced time:', playbackTime, '(was at', currentTime, ')');
+        lastCommandTime.current = Date.now();
+        lastKnownTime.current = playbackTime;
+        playerRef.current.seekTo(playbackTime, true);
+      }
+    } catch (e) {
+      console.error('YT seek error:', e);
+    }
+  }, [playbackTime]);
+
   return React.createElement('div', {
     ref: containerRef,
     style: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }
@@ -339,6 +389,7 @@ function VideoPlayer(props) {
   var playbackState = props.playbackState;
   var playbackTime = props.playbackTime;
   var onStateChange = props.onStateChange;
+  var onSeek = props.onSeek;
   var onEnded = props.onEnded;
   var isLocalChange = props.isLocalChange;
   
@@ -420,7 +471,9 @@ function VideoPlayer(props) {
       React.createElement(YouTubePlayer, {
         videoId: parsed.id,
         playbackState: playbackState,
-        onStateChange: onStateChange
+        playbackTime: playbackTime,
+        onStateChange: onStateChange,
+        onSeek: onSeek
       })
     );
   }
@@ -1365,6 +1418,7 @@ function Room(props) {
   // Track current video ID to prevent re-renders
   var currentVideoIdRef = useRef(null);
   var lastSyncedState = useRef(null);
+  var lastSyncedTime = useRef(0);
 
   function syncRoomState() {
     api.rooms.getSync(room.id).then(function(data) {
@@ -1390,6 +1444,7 @@ function Room(props) {
       if (data.room) {
         var serverUrl = data.room.currentVideoUrl;
         var serverState = data.room.playbackState || 'paused';
+        var serverTime = data.room.playbackTime || 0;
         
         if (serverUrl) {
           // Extract video ID for comparison
@@ -1398,30 +1453,45 @@ function Room(props) {
           
           // Only update video if ID actually changed
           if (serverVideoId !== currentVideoIdRef.current) {
-            console.log('>>> NEW VIDEO:', serverVideoId, 'state:', serverState);
+            console.log('>>> NEW VIDEO:', serverVideoId, 'state:', serverState, 'time:', serverTime);
             currentVideoIdRef.current = serverVideoId;
             lastSyncedState.current = serverState;
+            lastSyncedTime.current = serverTime;
             setCurrentVideo({ 
               id: serverVideoId, 
               title: data.room.currentVideoTitle || serverUrl, 
               url: serverUrl 
             });
             setPlaybackState(serverState);
-          } else if (serverState !== lastSyncedState.current) {
-            // Same video but state changed - sync state only
-            console.log('>>> STATE CHANGE:', lastSyncedState.current, '->', serverState);
-            lastSyncedState.current = serverState;
-            setPlaybackState(serverState);
+            setPlaybackTime(serverTime);
+          } else {
+            // Same video - check for state or time changes
+            var stateChanged = serverState !== lastSyncedState.current;
+            var timeDiff = Math.abs(serverTime - lastSyncedTime.current);
+            var timeChanged = timeDiff > 3; // Only sync if > 3 seconds difference
+            
+            if (stateChanged) {
+              console.log('>>> STATE CHANGE:', lastSyncedState.current, '->', serverState);
+              lastSyncedState.current = serverState;
+              setPlaybackState(serverState);
+            }
+            
+            if (timeChanged) {
+              console.log('>>> TIME SYNC:', lastSyncedTime.current, '->', serverTime, '(diff:', timeDiff, ')');
+              lastSyncedTime.current = serverTime;
+              setPlaybackTime(serverTime);
+            }
           }
-          // Same video, same state - do nothing
         } else {
           // No video on server
           if (currentVideoIdRef.current) {
             console.log('>>> Clearing video');
             currentVideoIdRef.current = null;
             lastSyncedState.current = null;
+            lastSyncedTime.current = 0;
             setCurrentVideo(null);
             setPlaybackState('paused');
+            setPlaybackTime(0);
           }
         }
       }
@@ -1473,10 +1543,19 @@ function Room(props) {
   function handlePlayerStateChange(state, time) {
     console.log('Player state changed:', state, 'at', time);
     lastSyncedState.current = state;
+    lastSyncedTime.current = time;
     lastLocalChange.current = Date.now();
     setPlaybackState(state);
     setPlaybackTime(time);
     broadcastState(currentVideo, state, time);
+  }
+
+  function handlePlayerSeek(time) {
+    console.log('Player seeked to:', time);
+    lastSyncedTime.current = time;
+    lastLocalChange.current = Date.now();
+    setPlaybackTime(time);
+    broadcastState(currentVideo, playbackState, time);
   }
 
   function playVideo(video, index) {
@@ -1484,6 +1563,7 @@ function Room(props) {
     var parsed = parseVideoUrl(video.url);
     currentVideoIdRef.current = parsed ? parsed.id : video.url;
     lastSyncedState.current = 'playing';
+    lastSyncedTime.current = 0;
     setCurrentVideo(video);
     setCurrentIndex(index);
     setPlaybackState('playing');
@@ -1497,6 +1577,7 @@ function Room(props) {
     if (!parsed) { showNotif('Invalid URL', 'error'); return; }
     currentVideoIdRef.current = parsed.id;
     lastSyncedState.current = 'playing';
+    lastSyncedTime.current = 0;
     var video = { id: parsed.id, title: urlInput, url: urlInput.trim() };
     setCurrentVideo(video);
     setPlaybackState('playing');
@@ -1681,7 +1762,8 @@ function Room(props) {
             video: currentVideo, 
             playbackState: playbackState, 
             playbackTime: playbackTime, 
-            onStateChange: handlePlayerStateChange, 
+            onStateChange: handlePlayerStateChange,
+            onSeek: handlePlayerSeek,
             onEnded: playNext,
             isLocalChange: (Date.now() - lastLocalChange.current) < 2000
           }),
