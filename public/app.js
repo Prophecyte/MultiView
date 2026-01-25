@@ -1514,6 +1514,7 @@ function Room(props) {
   var _activePlaylist = useState(null);
   var activePlaylist = _activePlaylist[0];
   var setActivePlaylist = _activePlaylist[1];
+  var activePlaylistIdRef = useRef(null); // Track active playlist ID persistently
   
   var _currentVideo = useState(null);
   var currentVideo = _currentVideo[0];
@@ -1586,12 +1587,21 @@ function Room(props) {
       
       if (data.playlists) {
         setPlaylists(data.playlists);
-        if (activePlaylist) {
-          var updated = data.playlists.find(function(p) { return p.id === activePlaylist.id; });
-          if (updated) setActivePlaylist(updated);
-        } else if (data.playlists.length > 0 && !activePlaylist) {
-          setActivePlaylist(data.playlists[0]);
+        
+        // Use ref to reliably track which playlist should be active
+        var targetId = activePlaylistIdRef.current;
+        if (targetId) {
+          var updated = data.playlists.find(function(p) { return p.id === targetId; });
+          if (updated) {
+            setActivePlaylist(updated);
+          }
+          // If playlist was deleted, clear the ref and selection
+          else {
+            activePlaylistIdRef.current = null;
+            setActivePlaylist(null);
+          }
         }
+        // Don't auto-select - let user choose
       }
       
       // Skip sync if we made a local change recently
@@ -1810,11 +1820,17 @@ function Room(props) {
     }
   }
 
+  // Wrapper to select playlist and update ref
+  function selectPlaylist(playlist) {
+    activePlaylistIdRef.current = playlist ? playlist.id : null;
+    setActivePlaylist(playlist);
+  }
+
   function handleCreatePlaylist(name) {
     api.playlists.create(room.id, name).then(function(p) {
       var newPl = Object.assign({}, p, { videos: [] });
       setPlaylists(playlists.concat([newPl]));
-      setActivePlaylist(newPl);
+      selectPlaylist(newPl);
       showNotif('Created!');
     }).catch(function(err) { showNotif(err.message, 'error'); });
   }
@@ -1823,7 +1839,10 @@ function Room(props) {
     if (!confirm('Delete playlist?')) return;
     api.playlists.delete(id).then(function() {
       setPlaylists(playlists.filter(function(p) { return p.id !== id; }));
-      if (activePlaylist && activePlaylist.id === id) { setActivePlaylist(null); setCurrentVideo(null); }
+      if (activePlaylist && activePlaylist.id === id) { 
+        selectPlaylist(null); 
+        setCurrentVideo(null); 
+      }
       showNotif('Deleted!', 'warning');
     });
   }
@@ -1831,7 +1850,10 @@ function Room(props) {
   function handleRenamePlaylist(id, name) {
     api.playlists.update(id, { name: name }).then(function() {
       setPlaylists(playlists.map(function(p) { return p.id === id ? Object.assign({}, p, { name: name }) : p; }));
-      if (activePlaylist && activePlaylist.id === id) setActivePlaylist(Object.assign({}, activePlaylist, { name: name }));
+      if (activePlaylist && activePlaylist.id === id) {
+        var updated = Object.assign({}, activePlaylist, { name: name });
+        selectPlaylist(updated);
+      }
       showNotif('Renamed!');
     });
   }
@@ -1954,7 +1976,7 @@ function Room(props) {
     
     React.createElement('div', { className: 'dashboard-content' },
       React.createElement('aside', { className: 'sidebar' + (sidebarOpen ? '' : ' closed') },
-        React.createElement(PlaylistPanel, { playlists: playlists, activePlaylist: activePlaylist, onSelect: setActivePlaylist, onCreate: handleCreatePlaylist, onDelete: handleDeletePlaylist, onRename: handleRenamePlaylist, onReorder: handleReorderPlaylists })
+        React.createElement(PlaylistPanel, { playlists: playlists, activePlaylist: activePlaylist, onSelect: selectPlaylist, onCreate: handleCreatePlaylist, onDelete: handleDeletePlaylist, onRename: handleRenamePlaylist, onReorder: handleReorderPlaylists })
       ),
       
       React.createElement('main', { className: 'main-content' },
