@@ -277,13 +277,17 @@ export const handler = async (event) => {
         ORDER BY p.position, p.created_at
       `;
 
-      // Get members
+      // Get members with computed status
       const members = await sql`
         SELECT rv.user_id, rv.guest_id, rv.display_name, rv.color, rv.status, rv.last_seen,
-               CASE WHEN rv.user_id = ${room.owner_id} THEN true ELSE false END as is_owner
+               CASE WHEN rv.user_id = ${room.owner_id} THEN true ELSE false END as is_owner,
+               CASE 
+                 WHEN rv.last_seen > NOW() - INTERVAL '15 seconds' THEN 'online'
+                 WHEN rv.last_seen > NOW() - INTERVAL '60 seconds' THEN 'away'
+                 ELSE 'offline'
+               END as computed_status
         FROM room_visitors rv
         WHERE rv.room_id = ${roomId}::uuid
-          AND (rv.last_seen > NOW() - INTERVAL '60 seconds' OR rv.status = 'online')
         ORDER BY is_owner DESC, rv.display_name
       `;
 
@@ -308,7 +312,7 @@ export const handler = async (event) => {
             guestId: m.guest_id,
             displayName: m.display_name,
             color: m.color,
-            status: m.status,
+            status: m.computed_status,
             isOwner: m.is_owner,
             lastSeen: m.last_seen
           }))
