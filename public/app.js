@@ -269,7 +269,9 @@ function YouTubePlayer(props) {
           autoplay: playbackState === 'playing' ? 1 : 0,
           rel: 0,
           modestbranding: 1,
-          start: Math.floor(playbackTime || 0)
+          start: Math.floor(playbackTime || 0),
+          playsinline: 1,
+          enablejsapi: 1
         },
         events: {
           onReady: function() {
@@ -740,7 +742,7 @@ function DraggableVideoList(props) {
         React.createElement('div', { className: 'video-item-top' },
           React.createElement('div', { className: 'drag-handle' }, React.createElement(Icon, { name: 'grip', size: 'sm' })),
           React.createElement('span', { className: 'video-index' }, i + 1),
-          React.createElement('span', { className: 'video-type-icon' }, getVideoTypeIcon(parsed ? parsed.type : null)),
+          React.createElement('span', { className: 'video-type-icon' }, (parsed ? parsed.type : null)),
           isEditing 
             ? React.createElement('input', {
                 className: 'video-edit-input',
@@ -1531,13 +1533,42 @@ function Room(props) {
       syncRoomState();
     }).catch(console.error);
     
+    // Regular sync interval
     syncInterval.current = setInterval(function() {
       api.presence.heartbeat(room.id, 'online').catch(console.error);
       syncRoomState();
     }, SYNC_INTERVAL);
     
+    // Handle visibility changes - sync when tab becomes visible
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'visible') {
+        console.log('Tab visible - syncing...');
+        api.presence.heartbeat(room.id, 'online').catch(console.error);
+        syncRoomState();
+      }
+    }
+    
+    // Throttled heartbeat for user activity
+    var lastActivityHeartbeat = 0;
+    function throttledHeartbeat() {
+      var now = Date.now();
+      if (now - lastActivityHeartbeat > 10000) {
+        lastActivityHeartbeat = now;
+        api.presence.heartbeat(room.id, 'online').catch(console.error);
+      }
+    }
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', function() {
+      api.presence.heartbeat(room.id, 'online').catch(console.error);
+      syncRoomState();
+    });
+    window.addEventListener('mousemove', throttledHeartbeat);
+    window.addEventListener('keydown', throttledHeartbeat);
+    
     return function() {
       clearInterval(syncInterval.current);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       api.presence.leave(room.id).catch(console.error);
     };
   }, [room.id]);
