@@ -253,6 +253,13 @@ function ConnectedUsers({ users, isHost, currentUserId, roomId, onKick, onRename
   }, []);
 
   var onlineCount = users.filter(function(u) { return u.status === 'online'; }).length;
+  
+  // Sort users: owner first, then by name
+  var sortedUsers = users.slice().sort(function(a, b) {
+    if (a.isOwner && !b.isOwner) return -1;
+    if (!a.isOwner && b.isOwner) return 1;
+    return (a.displayName || '').localeCompare(b.displayName || '');
+  });
 
   return React.createElement('div', { className: 'connected-users-section' },
     React.createElement('div', { className: 'connected-header' },
@@ -260,8 +267,8 @@ function ConnectedUsers({ users, isHost, currentUserId, roomId, onKick, onRename
       React.createElement('span', { className: 'online-count' }, React.createElement('span', { className: 'count' }, onlineCount), ' online')
     ),
     React.createElement('div', { className: 'users-list' },
-      users.length === 0 ? React.createElement('div', { className: 'no-users' }, 'No one here yet') :
-      users.map(function(user) {
+      sortedUsers.length === 0 ? React.createElement('div', { className: 'no-users' }, 'No one here yet') :
+      sortedUsers.map(function(user) {
         var isYou = user.visitorId === currentUserId;
         var statusClass = user.status || 'offline';
         var badgeStyle = user.color ? { background: user.color } : {};
@@ -383,7 +390,15 @@ function SettingsModal({ user, onClose, onUpdate, onLogout }) {
   function handleDeleteAccount() {
     if (!confirm('Are you sure you want to delete your account? This cannot be undone.')) return;
     if (!confirm('Really delete? All your rooms and data will be lost forever.')) return;
-    showMsg('Account deletion not implemented yet', 'error');
+    setLoading(true);
+    api.auth.deleteAccount()
+      .then(function() {
+        onLogout();
+      })
+      .catch(function(err) {
+        showMsg('Failed to delete account: ' + err.message, 'error');
+        setLoading(false);
+      });
   }
 
   return React.createElement('div', { className: 'modal-overlay', onClick: onClose },
