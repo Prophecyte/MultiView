@@ -1,7 +1,6 @@
 // netlify/functions/presence.js
 import { neon } from '@neondatabase/serverless';
 
-// Netlify Neon extension uses NETLIFY_DATABASE_URL
 const sql = neon(process.env.NETLIFY_DATABASE_URL || process.env.DATABASE_URL);
 
 const headers = {
@@ -11,9 +10,18 @@ const headers = {
   'Content-Type': 'application/json'
 };
 
+const getPath = (event) => {
+  let path = event.path || '';
+  path = path.replace('/.netlify/functions/presence', '');
+  path = path.replace('/api/presence', '');
+  if (!path.startsWith('/')) path = '/' + path;
+  if (path === '/') path = '';
+  return path;
+};
+
 const getUserFromToken = async (authHeader) => {
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  const token = authHeader.substring(7);
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  const token = authHeader.replace('Bearer ', '');
   
   const [session] = await sql`
     SELECT u.id, u.email, u.display_name
@@ -30,75 +38,36 @@ export const handler = async (event) => {
     return { statusCode: 200, headers, body: '' };
   }
 
-  const path = event.path.replace('/.netlify/functions/presence', '');
+  const path = getPath(event);
   const body = event.body ? JSON.parse(event.body) : {};
-  const user = await getUserFromToken(event.headers.authorization);
+  const user = await getUserFromToken(event.headers.authorization || event.headers.Authorization);
+
+  console.log('Presence function:', event.httpMethod, path);
 
   try {
     // POST /presence/heartbeat - Update presence
     if (event.httpMethod === 'POST' && path === '/heartbeat') {
-      const { roomId, guestId, status = 'online' } = body;
+      const { roomId, guestId, status } = body;
 
       if (!roomId) {
-        return { statusCode: 400, headers, body: JSON.stringify({ error: 'roomId is required' }) };
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'roomId required' }) };
       }
 
       if (user) {
         await sql`
-          INSERT INTO presence (room_id, user_id, status, last_seen)
-          VALUES (${roomId}::uuid, ${user.id}, ${status}, NOW())
-          ON CONFLICT (room_id, user_id) 
-          DO UPDATE SET status = ${status}, last_seen = NOW()
+          UPDATE room_visitors 
+          SET last_seen = NOW(), status = ${status || 'online'}
+          WHERE room_id = ${roomId}::uuid AND user_id = ${user.id}
         `;
       } else if (guestId) {
         await sql`
-          INSERT INTO presence (room_id, guest_id, status, last_seen)
-          VALUES (${roomId}::uuid, ${guestId}, ${status}, NOW())
-          ON CONFLICT (room_id, guest_id) 
-          DO UPDATE SET status = ${status}, last_seen = NOW()
+          UPDATE room_visitors 
+          SET last_seen = NOW(), status = ${status || 'online'}
+          WHERE room_id = ${roomId}::uuid AND guest_id = ${guestId}
         `;
       }
 
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ success: true })
-      };
-    }
-
-    // GET /presence/:roomId - Get room presence
-    if (event.httpMethod === 'GET' && path.match(/^\/[^\/]+$/)) {
-      const roomId = path.substring(1);
-
-      // Get members with presence info
-      const members = await sql`
-        SELECT 
-          rm.id,
-          rm.user_id,
-          rm.guest_id,
-          rm.display_name,
-          rm.color,
-          rm.is_owner,
-          CASE 
-            WHEN p.last_seen > NOW() - INTERVAL '30 seconds' THEN p.status
-            ELSE 'offline'
-          END as status,
-          p.last_seen
-        FROM room_members rm
-        LEFT JOIN presence p ON rm.room_id = p.room_id 
-          AND (
-            (rm.user_id IS NOT NULL AND rm.user_id = p.user_id) OR
-            (rm.guest_id IS NOT NULL AND rm.guest_id = p.guest_id)
-          )
-        WHERE rm.room_id = ${roomId}::uuid
-        ORDER BY rm.is_owner DESC, rm.display_name
-      `;
-
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ members })
-      };
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
     }
 
     // POST /presence/leave - Leave room
@@ -106,83 +75,94 @@ export const handler = async (event) => {
       const { roomId, guestId } = body;
 
       if (!roomId) {
-        return { statusCode: 400, headers, body: JSON.stringify({ error: 'roomId is required' }) };
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'roomId required' }) };
       }
 
       if (user) {
         await sql`
-          UPDATE presence SET status = 'offline', last_seen = NOW()
+          UPDATE room_visitors SET status = 'offline'
           WHERE room_id = ${roomId}::uuid AND user_id = ${user.id}
         `;
       } else if (guestId) {
         await sql`
-          UPDATE presence SET status = 'offline', last_seen = NOW()
+          UPDATE room_visitors SET status = 'offline'
           WHERE room_id = ${roomId}::uuid AND guest_id = ${guestId}
         `;
       }
 
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ success: true })
-      };
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
     }
 
-    // PUT /presence/member - Update member info (name, color)
+    // PUT /presence/member - Update member (rename, color)
     if (event.httpMethod === 'PUT' && path === '/member') {
-      const { roomId, visitorId, guestId: targetGuestId, displayName, color } = body;
+      const { roomId, visitorId, guestId, displayName, color } = body;
 
       if (!roomId) {
-        return { statusCode: 400, headers, body: JSON.stringify({ error: 'roomId is required' }) };
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'roomId required' }) };
       }
 
       if (visitorId) {
         await sql`
-          UPDATE room_members 
+          UPDATE room_visitors 
           SET display_name = COALESCE(${displayName}, display_name),
-              color = ${color}
-          WHERE room_id = ${roomId}::uuid AND user_id = ${visitorId}::uuid
+              color = COALESCE(${color}, color)
+          WHERE room_id = ${roomId}::uuid AND user_id = ${visitorId}
         `;
-      } else if (targetGuestId) {
+      } else if (guestId) {
         await sql`
-          UPDATE room_members 
+          UPDATE room_visitors 
           SET display_name = COALESCE(${displayName}, display_name),
-              color = ${color}
-          WHERE room_id = ${roomId}::uuid AND guest_id = ${targetGuestId}
+              color = COALESCE(${color}, color)
+          WHERE room_id = ${roomId}::uuid AND guest_id = ${guestId}
         `;
       }
 
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
+    }
+
+    // GET /presence/:roomId - Get room members
+    const roomMatch = path.match(/^\/([^\/]+)$/);
+    if (event.httpMethod === 'GET' && roomMatch) {
+      const roomId = roomMatch[1];
+
+      // Get room owner
+      const [room] = await sql`SELECT owner_id FROM rooms WHERE id = ${roomId}::uuid`;
+
+      const members = await sql`
+        SELECT 
+          rv.user_id,
+          rv.guest_id,
+          rv.display_name,
+          rv.color,
+          rv.status,
+          rv.last_seen,
+          CASE WHEN rv.user_id = ${room?.owner_id || null} THEN true ELSE false END as is_owner
+        FROM room_visitors rv
+        WHERE rv.room_id = ${roomId}::uuid
+          AND (rv.last_seen > NOW() - INTERVAL '30 seconds' OR rv.status = 'online')
+        ORDER BY is_owner DESC, rv.display_name
+      `;
+
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({ success: true })
+        body: JSON.stringify({
+          members: members.map(m => ({
+            visitorId: m.user_id || m.guest_id,
+            displayName: m.display_name,
+            color: m.color,
+            status: m.status,
+            isOwner: m.is_owner,
+            lastSeen: m.last_seen
+          }))
+        })
       };
     }
 
-    // Cleanup old presence data (can be called periodically)
-    if (event.httpMethod === 'POST' && path === '/cleanup') {
-      // Remove presence older than 1 hour
-      await sql`DELETE FROM presence WHERE last_seen < NOW() - INTERVAL '1 hour'`;
-
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ success: true })
-      };
-    }
-
-    return {
-      statusCode: 404,
-      headers,
-      body: JSON.stringify({ error: 'Not found' })
-    };
+    return { statusCode: 404, headers, body: JSON.stringify({ error: 'Not found' }) };
 
   } catch (error) {
     console.error('Presence error:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Internal server error' })
-    };
+    return { statusCode: 500, headers, body: JSON.stringify({ error: error.message }) };
   }
 };
