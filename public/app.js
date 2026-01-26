@@ -558,7 +558,7 @@ function VideoPlayer(props) {
   }
   
   if (parsed.type === 'direct') {
-    // Check if it's an audio file
+    // Check if it is an audio file
     var isAudio = video.url.match(/\.(mp3|wav|m4a|flac|aac|ogg)$/i) || 
                   (video.title && video.title.match(/\.(mp3|wav|m4a|flac|aac)$/i));
     
@@ -1537,11 +1537,19 @@ function HomePage(props) {
       api.rooms.list().then(function(r) {
         if (!r || r.length === 0) return api.rooms.create('My Room').then(function(room) { return [room]; });
         return r;
+      }).catch(function(err) { 
+        console.error('Error loading rooms:', err);
+        return []; 
       }),
-      api.rooms.getVisited().catch(function() { return []; })
+      api.rooms.getVisited().catch(function(err) { 
+        console.error('Error loading visited rooms:', err);
+        return []; 
+      })
     ]).then(function(results) {
-      setRooms(results[0]);
-      setVisitedRooms(results[1]);
+      setRooms(results[0] || []);
+      setVisitedRooms(results[1] || []);
+    }).catch(function(err) {
+      console.error('Error in loadRooms:', err);
     }).finally(function() { setLoading(false); });
   }
 
@@ -1775,7 +1783,7 @@ function Room(props) {
           // User is in room, confirm join
           hasConfirmedJoin.current = true;
         } else if (hasConfirmedJoin.current && (Date.now() - joinTime.current > 10000)) {
-          // User was confirmed in room but is no longer there, and it's been > 10 seconds since join
+          // User was confirmed in room but is no longer there, and it has been > 10 seconds since join
           // This means they were kicked
           console.log('You have been kicked from the room');
           if (onKicked) onKicked();
@@ -1786,7 +1794,7 @@ function Room(props) {
         setConnectedUsers(data.members);
         
         // Note: Removed auto-pause when room empty - it was causing issues
-        // when owner rejoins (their presence isn't registered yet on first sync)
+        // when owner rejoins (their presence is not registered yet on first sync)
       }
       
       if (data.playlists) {
@@ -1805,7 +1813,7 @@ function Room(props) {
             setActivePlaylist(null);
           }
         }
-        // Don't auto-select - let user choose
+        // Do not auto-select - let user choose
       }
       
       // Skip sync if we made a local change recently (use longer timeout during initial sync)
@@ -1952,7 +1960,7 @@ function Room(props) {
   }
 
   function broadcastState(video, state, time) {
-    // Don't broadcast local files (blob URLs) - they only work locally
+    // Do not broadcast local files (blob URLs) - they only work locally
     if (video && video.url && video.url.startsWith('blob:')) {
       console.log('>>> SKIPPING BROADCAST (local file)');
       return;
