@@ -3032,10 +3032,7 @@ function MultiviewApp() {
       setCurrentView('home');
       setCurrentRoom(null);
       location.hash = '';
-      
-      // Reset theme to default gold on logout
-      localStorage.removeItem('theme');
-      document.documentElement.setAttribute('data-theme', 'gold');
+      // Theme stays as user's last selection (persists in localStorage)
     });
   }
 
