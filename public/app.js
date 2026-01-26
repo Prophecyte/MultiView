@@ -401,7 +401,13 @@ function YouTubePlayer(props) {
             // Apply correct playback state
             if (latestState === 'playing') {
               console.log('>>> Starting playback');
+              lastCommandTime.current = Date.now();
               playerRef.current.playVideo();
+            } else {
+              // Explicitly pause to avoid stuck buffering
+              console.log('>>> Pausing video');
+              lastCommandTime.current = Date.now();
+              playerRef.current.pauseVideo();
             }
             
             // Monitor for seeks - check frequently for instant response
@@ -480,22 +486,41 @@ function YouTubePlayer(props) {
   useEffect(function() {
     if (!isReady.current || !playerRef.current) return;
     
-    try {
-      var currentState = playerRef.current.getPlayerState();
-      // 1 = playing, 2 = paused
-      
-      if (playbackState === 'playing' && currentState !== 1) {
-        console.log('>>> Sending PLAY command');
-        lastCommandTime.current = Date.now();
-        playerRef.current.playVideo();
-      } else if (playbackState === 'paused' && currentState !== 2) {
-        console.log('>>> Sending PAUSE command');
-        lastCommandTime.current = Date.now();
-        playerRef.current.pauseVideo();
+    function applyState() {
+      try {
+        var currentState = playerRef.current.getPlayerState();
+        // 1 = playing, 2 = paused, 3 = buffering, -1 = unstarted
+        
+        if (playbackState === 'playing' && currentState !== 1) {
+          console.log('>>> Sending PLAY command');
+          lastCommandTime.current = Date.now();
+          playerRef.current.playVideo();
+        } else if (playbackState === 'paused' && currentState !== 2) {
+          // Pause if not already paused (handles buffering state 3 as well)
+          console.log('>>> Sending PAUSE command (current state:', currentState, ')');
+          lastCommandTime.current = Date.now();
+          playerRef.current.pauseVideo();
+          
+          // Retry pause after a short delay if still buffering
+          if (currentState === 3 || currentState === -1) {
+            setTimeout(function() {
+              if (playerRef.current && playbackState === 'paused') {
+                var state = playerRef.current.getPlayerState();
+                if (state !== 2) {
+                  console.log('>>> Retry PAUSE (state was:', state, ')');
+                  lastCommandTime.current = Date.now();
+                  playerRef.current.pauseVideo();
+                }
+              }
+            }, 500);
+          }
+        }
+      } catch (e) {
+        console.error('YT command error:', e);
       }
-    } catch (e) {
-      console.error('YT command error:', e);
     }
+    
+    applyState();
   }, [playbackState]);
 
   // Apply time sync from server - instant sync
