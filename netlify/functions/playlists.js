@@ -33,6 +33,15 @@ const getUserFromToken = async (authHeader) => {
   return session || null;
 };
 
+// Ensure hidden column exists
+const ensureHiddenColumn = async () => {
+  try {
+    await sql`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS hidden BOOLEAN DEFAULT false`;
+  } catch (e) {
+    // Column might already exist
+  }
+};
+
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
@@ -46,35 +55,120 @@ export const handler = async (event) => {
   console.log('Playlists function:', event.httpMethod, path);
 
   try {
+    await ensureHiddenColumn();
+
     // GET /playlists?roomId=xxx - List playlists for room
     if (event.httpMethod === 'GET' && path === '') {
       const roomId = query.roomId;
+      const includeHidden = query.includeHidden === 'true';
+      
       if (!roomId) {
         return { statusCode: 400, headers, body: JSON.stringify({ error: 'roomId required' }) };
       }
 
-      const playlists = await sql`
-        SELECT p.id, p.name, p.position, p.created_at,
-               COALESCE(
-                 json_agg(
-                   json_build_object(
-                     'id', v.id,
-                     'title', v.title,
-                     'url', v.url,
-                     'videoType', v.video_type,
-                     'position', v.position
-                   ) ORDER BY v.position
-                 ) FILTER (WHERE v.id IS NOT NULL),
-                 '[]'
-               ) as videos
-        FROM playlists p
-        LEFT JOIN videos v ON v.playlist_id = p.id
-        WHERE p.room_id = ${roomId}::uuid
-        GROUP BY p.id
-        ORDER BY p.position, p.created_at
+      // Check if user is the room owner
+      const [room] = await sql`SELECT owner_id FROM rooms WHERE id = ${roomId}::uuid`;
+      const isOwner = room && user && room.owner_id === user.id;
+
+      let playlists;
+      if (isOwner || includeHidden) {
+        // Owner sees all playlists including hidden
+        playlists = await sql`
+          SELECT p.id, p.name, p.position, p.created_at, COALESCE(p.hidden, false) as hidden,
+                 COALESCE(
+                   json_agg(
+                     json_build_object(
+                       'id', v.id,
+                       'title', v.title,
+                       'url', v.url,
+                       'videoType', v.video_type,
+                       'position', v.position
+                     ) ORDER BY v.position
+                   ) FILTER (WHERE v.id IS NOT NULL),
+                   '[]'
+                 ) as videos
+          FROM playlists p
+          LEFT JOIN videos v ON v.playlist_id = p.id
+          WHERE p.room_id = ${roomId}::uuid
+          GROUP BY p.id
+          ORDER BY p.position, p.created_at
+        `;
+      } else {
+        // Non-owners only see non-hidden playlists
+        playlists = await sql`
+          SELECT p.id, p.name, p.position, p.created_at, COALESCE(p.hidden, false) as hidden,
+                 COALESCE(
+                   json_agg(
+                     json_build_object(
+                       'id', v.id,
+                       'title', v.title,
+                       'url', v.url,
+                       'videoType', v.video_type,
+                       'position', v.position
+                     ) ORDER BY v.position
+                   ) FILTER (WHERE v.id IS NOT NULL),
+                   '[]'
+                 ) as videos
+          FROM playlists p
+          LEFT JOIN videos v ON v.playlist_id = p.id
+          WHERE p.room_id = ${roomId}::uuid AND (p.hidden IS NULL OR p.hidden = false)
+          GROUP BY p.id
+          ORDER BY p.position, p.created_at
+        `;
+      }
+
+      return { statusCode: 200, headers, body: JSON.stringify({ playlists, isOwner }) };
+    }
+
+    // POST /playlists/import - Import playlist from another room
+    if (event.httpMethod === 'POST' && path === '/import') {
+      const { targetRoomId, playlist } = body;
+      
+      if (!targetRoomId || !playlist || !playlist.name) {
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'targetRoomId and playlist data required' }) };
+      }
+
+      // Get max position
+      const [maxPos] = await sql`SELECT COALESCE(MAX(position), -1) + 1 as pos FROM playlists WHERE room_id = ${targetRoomId}::uuid`;
+
+      // Create playlist
+      const [newPlaylist] = await sql`
+        INSERT INTO playlists (room_id, name, position)
+        VALUES (${targetRoomId}::uuid, ${playlist.name}, ${maxPos.pos})
+        RETURNING id, name, position, created_at
       `;
 
-      return { statusCode: 200, headers, body: JSON.stringify({ playlists }) };
+      // Add videos
+      const videos = playlist.videos || [];
+      for (let i = 0; i < videos.length; i++) {
+        const v = videos[i];
+        await sql`
+          INSERT INTO videos (playlist_id, title, url, video_type, position)
+          VALUES (${newPlaylist.id}::uuid, ${v.title || v.url}, ${v.url}, ${v.videoType || 'youtube'}, ${i})
+        `;
+      }
+
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true, playlistId: newPlaylist.id }) };
+    }
+
+    // POST /playlists/:id/copy-video - Copy video to another playlist
+    if (event.httpMethod === 'POST' && path.match(/^\/[^\/]+\/copy-video$/)) {
+      const playlistId = path.split('/')[1];
+      const { video } = body;
+      
+      if (!video || !video.url) {
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'video data required' }) };
+      }
+
+      const [maxPos] = await sql`SELECT COALESCE(MAX(position), -1) + 1 as pos FROM videos WHERE playlist_id = ${playlistId}::uuid`;
+
+      const [newVideo] = await sql`
+        INSERT INTO videos (playlist_id, title, url, video_type, position)
+        VALUES (${playlistId}::uuid, ${video.title || video.url}, ${video.url}, ${video.videoType || 'youtube'}, ${maxPos.pos})
+        RETURNING id, title, url, video_type as "videoType", position
+      `;
+
+      return { statusCode: 200, headers, body: JSON.stringify({ video: newVideo }) };
     }
 
     // PUT /playlists/reorder - Reorder playlists
@@ -120,6 +214,18 @@ export const handler = async (event) => {
 
     const playlistId = playlistMatch[1];
     const subPath = playlistMatch[2] || '';
+
+    // PUT /playlists/:id/hide - Toggle playlist visibility
+    if (event.httpMethod === 'PUT' && subPath === '/hide') {
+      const { hidden } = body;
+      
+      await sql`
+        UPDATE playlists SET hidden = ${hidden}
+        WHERE id = ${playlistId}::uuid
+      `;
+
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true, hidden }) };
+    }
 
     // PUT /playlists/:id - Update playlist
     if (event.httpMethod === 'PUT' && subPath === '') {
