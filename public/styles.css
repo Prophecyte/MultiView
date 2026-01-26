@@ -992,7 +992,7 @@ body {
 
 /* Queue Panel */
 .queue-panel {
-  width: 340px;
+  width: 380px;
   display: flex;
   flex-direction: column;
   background: var(--bg-medium);
@@ -1084,9 +1084,9 @@ body {
 }
 
 .video-thumbnail {
-  width: 48px;
-  height: 36px;
-  border-radius: 4px;
+  width: 36px;
+  height: 27px;
+  border-radius: 3px;
   object-fit: cover;
   flex-shrink: 0;
   cursor: pointer;
@@ -1103,6 +1103,7 @@ body {
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
+  font-size: 10px;
 }
 
 .video-title {
@@ -2135,7 +2136,7 @@ body {
     max-width: 350px;
   }
   .queue-panel {
-    width: 300px;
+    width: 340px;
   }
 }
 
