@@ -181,11 +181,38 @@ api.presence = {
 // ============================================
 function parseVideoUrl(url) {
   if (!url) return null;
+  
+  // Blob URLs (local file uploads)
+  if (url.startsWith('blob:')) {
+    return { type: 'direct', id: url, url: url };
+  }
+  
+  // YouTube
   var ytMatch = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
   if (ytMatch) return { type: 'youtube', id: ytMatch[1], url: url };
+  
+  // Vimeo
   var vimeoMatch = url.match(/vimeo\.com\/(\d+)/);
   if (vimeoMatch) return { type: 'vimeo', id: vimeoMatch[1], url: url };
-  if (url.match(/\.(mp4|webm|ogg|mp3|wav|m4a)(\?|$)/i)) return { type: 'direct', url: url };
+  
+  // Direct video/audio files
+  if (url.match(/\.(mp4|webm|ogg|ogv|avi|mov|mkv|m4v|mp3|wav|m4a|flac|aac)(\?|$)/i)) {
+    return { type: 'direct', id: url, url: url };
+  }
+  
+  // Twitch
+  var twitchMatch = url.match(/twitch\.tv\/(?:videos\/)?(\w+)/);
+  if (twitchMatch) return { type: 'twitch', id: twitchMatch[1], url: url };
+  
+  // Dailymotion
+  var dmMatch = url.match(/dailymotion\.com\/video\/([a-zA-Z0-9]+)/);
+  if (dmMatch) return { type: 'dailymotion', id: dmMatch[1], url: url };
+  
+  // Any URL - treat as potential video
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return { type: 'direct', id: url, url: url };
+  }
+  
   return null;
 }
 
@@ -530,7 +557,11 @@ function VideoPlayer(props) {
   }
   
   if (parsed.type === 'direct') {
-    if (video.url.match(/\.(mp3|wav|m4a)$/i)) {
+    // Check if it's an audio file
+    var isAudio = video.url.match(/\.(mp3|wav|m4a|flac|aac|ogg)$/i) || 
+                  (video.title && video.title.match(/\.(mp3|wav|m4a|flac|aac)$/i));
+    
+    if (isAudio) {
       return React.createElement('div', { className: 'video-placeholder' },
         React.createElement('div', { style: { fontSize: '48px' } }, '🎵'),
         React.createElement('p', null, video.title),
@@ -545,6 +576,8 @@ function VideoPlayer(props) {
         })
       );
     }
+    
+    // Video file (including blob URLs)
     return React.createElement('video', { 
       ref: videoRef,
       key: video.url, 
@@ -552,6 +585,27 @@ function VideoPlayer(props) {
       controls: true, 
       autoPlay: playbackState === 'playing', 
       onEnded: onEnded, 
+      className: 'video-frame' 
+    });
+  }
+  
+  // For Twitch, Dailymotion, or other embedded content
+  if (parsed.type === 'twitch') {
+    return React.createElement('iframe', { 
+      key: video.url, 
+      src: 'https://player.twitch.tv/?channel=' + parsed.id + '&parent=' + window.location.hostname, 
+      allow: 'autoplay; fullscreen', 
+      allowFullScreen: true, 
+      className: 'video-frame' 
+    });
+  }
+  
+  if (parsed.type === 'dailymotion') {
+    return React.createElement('iframe', { 
+      key: video.url, 
+      src: 'https://www.dailymotion.com/embed/video/' + parsed.id + '?autoplay=1', 
+      allow: 'autoplay; fullscreen', 
+      allowFullScreen: true, 
       className: 'video-frame' 
     });
   }
@@ -1569,20 +1623,38 @@ function Room(props) {
   var lastSyncedState = useRef(null);
   var lastSyncedTime = useRef(0);
   var isInitialSync = useRef(true); // Prevent broadcasting during initial join
+  var hasConfirmedJoin = useRef(false); // Only check kicks after confirmed in room
+  var joinTime = useRef(Date.now()); // Track when we joined
 
   function syncRoomState() {
     api.rooms.getSync(room.id).then(function(data) {
-      // Check if current user was kicked
+      // Check if current user is in room
       if (data.members) {
         var stillInRoom = data.members.some(function(m) {
-          return (m.visitorId === visitorId) || (m.guestId === visitorId);
+          var visId = m.visitorId || m.guestId;
+          return visId === visitorId;
         });
-        if (!stillInRoom && !isInitialSync.current) {
+        
+        if (stillInRoom) {
+          // User is in room, confirm join
+          hasConfirmedJoin.current = true;
+        } else if (hasConfirmedJoin.current && (Date.now() - joinTime.current > 10000)) {
+          // User was confirmed in room but is no longer there, and it's been > 10 seconds since join
+          // This means they were kicked
           console.log('You have been kicked from the room');
           if (onKicked) onKicked();
           return;
         }
+        // If not confirmed yet and not in list, just wait - still joining
+        
         setConnectedUsers(data.members);
+        
+        // Auto-pause if room is empty (no online users)
+        var onlineCount = data.members.filter(function(m) { return m.status === 'online'; }).length;
+        if (onlineCount === 0 && currentVideo && playbackState === 'playing') {
+          console.log('Room empty, pausing video');
+          setPlaybackState('paused');
+        }
       }
       
       if (data.playlists) {
@@ -1673,6 +1745,8 @@ function Room(props) {
   useEffect(function() {
     console.log('Joining room and starting sync...');
     isInitialSync.current = true; // Reset on join
+    hasConfirmedJoin.current = false; // Reset join confirmation
+    joinTime.current = Date.now(); // Track join time
     
     // Check if this is a returning guest
     var returningGuestName = localStorage.getItem('returning_guest_' + room.id);
@@ -1740,6 +1814,12 @@ function Room(props) {
     // Don't broadcast during initial sync to prevent video jumping for others
     if (isInitialSync.current) {
       console.log('>>> SKIPPING BROADCAST (initial sync)');
+      return;
+    }
+    
+    // Don't broadcast local files (blob URLs) - they only work locally
+    if (video && video.url && video.url.startsWith('blob:')) {
+      console.log('>>> SKIPPING BROADCAST (local file)');
       return;
     }
     
@@ -1939,12 +2019,22 @@ function Room(props) {
 
   function handleFileUpload(e) {
     var files = Array.from(e.target.files);
-    files.forEach(function(file) {
+    if (files.length === 0) return;
+    
+    files.forEach(function(file, index) {
       var url = URL.createObjectURL(file);
       var title = file.name.replace(/\.[^/.]+$/, '');
-      var video = { id: 'local_' + Date.now(), title: title, url: url };
-      playVideo(video, -1);
+      var video = { id: 'local_' + Date.now() + '_' + index, title: title, url: url, isLocal: true };
+      
+      // Play the first file immediately
+      if (index === 0) {
+        playVideo(video, -1);
+      }
     });
+    
+    if (files.length > 0) {
+      showNotif('Playing local file (only visible to you)');
+    }
     e.target.value = '';
   }
 
