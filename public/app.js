@@ -322,6 +322,7 @@ function YouTubePlayer(props) {
   var lastKnownTime = useRef(0);
   var seekCheckInterval = useRef(null);
   var lastReportedSeek = useRef(0);
+  var handledEnded = useRef(false); // Track if we've handled the ended event for current video
   
   // Use refs to track latest props for use in callbacks
   var latestStateRef = useRef(playbackState);
@@ -398,19 +399,39 @@ function YouTubePlayer(props) {
               playerRef.current.seekTo(latestTime, true);
             }
             
-            // Apply correct playback state
-            if (latestState === 'playing') {
-              console.log('>>> Starting playback');
-              lastCommandTime.current = Date.now();
-              playerRef.current.playVideo();
-            } else {
-              // Explicitly pause to avoid stuck buffering
-              console.log('>>> Pausing video');
-              lastCommandTime.current = Date.now();
-              playerRef.current.pauseVideo();
+            // Apply correct playback state with retry
+            function applyInitialState() {
+              if (latestState === 'playing') {
+                console.log('>>> Starting playback');
+                lastCommandTime.current = Date.now();
+                playerRef.current.playVideo();
+              } else {
+                // Explicitly pause to avoid stuck buffering
+                console.log('>>> Pausing video');
+                lastCommandTime.current = Date.now();
+                playerRef.current.pauseVideo();
+              }
             }
             
-            // Monitor for seeks - check frequently for instant response
+            applyInitialState();
+            
+            // Retry after delay to ensure state is applied (handles buffering)
+            setTimeout(function() {
+              if (!playerRef.current || !isReady.current) return;
+              var state = playerRef.current.getPlayerState();
+              if (latestState === 'playing' && state !== 1) {
+                console.log('>>> Retry initial PLAY (state was:', state, ')');
+                lastCommandTime.current = Date.now();
+                playerRef.current.playVideo();
+              } else if (latestState !== 'playing' && state !== 2) {
+                console.log('>>> Retry initial PAUSE (state was:', state, ')');
+                lastCommandTime.current = Date.now();
+                playerRef.current.pauseVideo();
+              }
+            }, 500);
+            
+            // Monitor for seeks and video end - check frequently for instant response
+            // This also serves as backup for background tabs where events may not fire
             seekCheckInterval.current = setInterval(function() {
               if (!playerRef.current || !isReady.current) return;
               if (Date.now() - lastCommandTime.current < 300) return;
@@ -419,6 +440,19 @@ function YouTubePlayer(props) {
                 var currentTime = playerRef.current.getCurrentTime();
                 var expectedTime = lastKnownTime.current;
                 var playerState = playerRef.current.getPlayerState();
+                
+                // Check for video ended (state 0) - backup for background tabs
+                if (playerState === 0 && onEndedRef.current && !handledEnded.current) {
+                  console.log('YT: Video ended (detected via interval)');
+                  handledEnded.current = true;
+                  onEndedRef.current();
+                  return;
+                }
+                
+                // Reset handledEnded flag when video is playing
+                if (playerState === 1) {
+                  handledEnded.current = false;
+                }
                 
                 // Account for normal playback (if playing, time advances ~0.15s per check)
                 if (playerState === 1) { // Playing
@@ -444,13 +478,15 @@ function YouTubePlayer(props) {
             if (Date.now() - lastCommandTime.current < 300) return;
             
             // YT states: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering
-            if (event.data === 0 && onEndedRef.current) {
+            if (event.data === 0 && onEndedRef.current && !handledEnded.current) {
               console.log('YT: Video ended');
+              handledEnded.current = true;
               onEndedRef.current();
             } else if (event.data === 1 && onStateChangeRef.current) {
               var time = playerRef.current.getCurrentTime();
               console.log('YT: User played at', time.toFixed(1));
               lastKnownTime.current = time;
+              handledEnded.current = false; // Reset when video starts playing
               onStateChangeRef.current('playing', time);
             } else if (event.data === 2 && onStateChangeRef.current) {
               var time = playerRef.current.getCurrentTime();
@@ -492,9 +528,23 @@ function YouTubePlayer(props) {
         // 1 = playing, 2 = paused, 3 = buffering, -1 = unstarted
         
         if (playbackState === 'playing' && currentState !== 1) {
-          console.log('>>> Sending PLAY command');
+          console.log('>>> Sending PLAY command (current state:', currentState, ')');
           lastCommandTime.current = Date.now();
           playerRef.current.playVideo();
+          
+          // Retry play after a short delay if still buffering/unstarted
+          if (currentState === 3 || currentState === -1 || currentState === 2) {
+            setTimeout(function() {
+              if (playerRef.current && playbackState === 'playing') {
+                var state = playerRef.current.getPlayerState();
+                if (state !== 1) {
+                  console.log('>>> Retry PLAY (state was:', state, ')');
+                  lastCommandTime.current = Date.now();
+                  playerRef.current.playVideo();
+                }
+              }
+            }, 500);
+          }
         } else if (playbackState === 'paused' && currentState !== 2) {
           // Pause if not already paused (handles buffering state 3 as well)
           console.log('>>> Sending PAUSE command (current state:', currentState, ')');
@@ -589,15 +639,22 @@ function VideoPlayer(props) {
       onStateChange(state, videoRef.current.currentTime);
     }
     
+    function handleEnded() {
+      console.log('Direct video: ended');
+      if (onEnded) onEnded();
+    }
+    
     videoRef.current.addEventListener('play', handlePlay);
     videoRef.current.addEventListener('pause', handlePause);
     videoRef.current.addEventListener('seeked', handleSeeked);
+    videoRef.current.addEventListener('ended', handleEnded);
     
     return function() {
       if (videoRef.current) {
         videoRef.current.removeEventListener('play', handlePlay);
         videoRef.current.removeEventListener('pause', handlePause);
         videoRef.current.removeEventListener('seeked', handleSeeked);
+        videoRef.current.removeEventListener('ended', handleEnded);
       }
     };
   }, [video]);
@@ -675,7 +732,6 @@ function VideoPlayer(props) {
           src: video.url, 
           controls: true, 
           autoPlay: playbackState === 'playing', 
-          onEnded: onEnded, 
           style: { width: '80%', maxWidth: '400px' } 
         })
       );
@@ -688,7 +744,6 @@ function VideoPlayer(props) {
       src: video.url, 
       controls: true, 
       autoPlay: playbackState === 'playing', 
-      onEnded: onEnded, 
       className: 'video-frame' 
     });
   }
@@ -1436,7 +1491,9 @@ function SettingsModal(props) {
   var displayName = _displayName[0];
   var setDisplayName = _displayName[1];
   
-  var _theme = useState(localStorage.getItem('theme') || 'gold');
+  // Use user-specific theme storage
+  var userThemeKey = 'theme_' + user.id;
+  var _theme = useState(localStorage.getItem(userThemeKey) || 'gold');
   var theme = _theme[0];
   var setThemeState = _theme[1];
   
@@ -1538,7 +1595,7 @@ function SettingsModal(props) {
 
   function handleSetTheme(themeId) {
     setThemeState(themeId);
-    localStorage.setItem('theme', themeId);
+    localStorage.setItem(userThemeKey, themeId);
     document.documentElement.setAttribute('data-theme', themeId);
   }
 
@@ -2944,7 +3001,12 @@ function MultiviewApp() {
 
   useEffect(function() {
     api.auth.getCurrentUser().then(function(u) {
-      if (u) setUser(u);
+      if (u) {
+        setUser(u);
+        // Apply user's saved theme
+        var userTheme = localStorage.getItem('theme_' + u.id) || 'gold';
+        document.documentElement.setAttribute('data-theme', userTheme);
+      }
       var roomInfo = parseRoomUrl();
       if (roomInfo) handleJoinFromUrl(roomInfo.hostId, roomInfo.roomId, u);
     }).finally(function() { setLoading(false); });
@@ -3032,7 +3094,8 @@ function MultiviewApp() {
       setCurrentView('home');
       setCurrentRoom(null);
       location.hash = '';
-      // Theme stays as user's last selection (persists in localStorage)
+      // Reset to default gold theme when logged out
+      document.documentElement.setAttribute('data-theme', 'gold');
     });
   }
 
@@ -3042,7 +3105,14 @@ function MultiviewApp() {
 
   if (showAuthScreen) return React.createElement(AuthScreen, { onAuth: handleAuthComplete });
 
-  if (!user && currentView !== 'room') return React.createElement(AuthScreen, { onAuth: function(u) { setUser(u); var ri = parseRoomUrl(); if (ri) handleJoinFromUrl(ri.hostId, ri.roomId, u); } });
+  if (!user && currentView !== 'room') return React.createElement(AuthScreen, { onAuth: function(u) { 
+    setUser(u); 
+    // Apply user's saved theme on login
+    var userTheme = localStorage.getItem('theme_' + u.id) || 'gold';
+    document.documentElement.setAttribute('data-theme', userTheme);
+    var ri = parseRoomUrl(); 
+    if (ri) handleJoinFromUrl(ri.hostId, ri.roomId, u); 
+  } });
 
   if (currentView === 'room' && currentRoom) return React.createElement(Room, { user: user, room: currentRoom, hostId: roomHostId, guestDisplayName: guestDisplayName, onHome: user ? handleGoHome : null, onLogout: handleLogout, onUpdateUser: setUser, onKicked: handleKicked });
 
@@ -3051,10 +3121,10 @@ function MultiviewApp() {
   return React.createElement(AuthScreen, { onAuth: setUser });
 }
 
-// Initialize theme from localStorage
+// Initialize theme to default gold
+// User-specific theme will be applied after login
 (function() {
-  var savedTheme = localStorage.getItem('theme') || 'gold';
-  document.documentElement.setAttribute('data-theme', savedTheme);
+  document.documentElement.setAttribute('data-theme', 'gold');
 })();
 
 // Disable browser's default right-click context menu
