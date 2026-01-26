@@ -998,7 +998,6 @@ function DraggableVideoList(props) {
       },
         React.createElement('div', { className: 'video-item-top' },
           React.createElement('div', { className: 'drag-handle' }, React.createElement(Icon, { name: 'grip', size: 'sm' })),
-          React.createElement('span', { className: 'video-index' }, i + 1),
           thumbnail 
             ? React.createElement('img', { className: 'video-thumbnail', src: thumbnail, alt: '', onClick: function() { onPlay(v, i); } })
             : React.createElement('div', { className: 'video-thumbnail placeholder', onClick: function() { onPlay(v, i); } }, React.createElement(Icon, { name: 'play', size: 'sm' })),
