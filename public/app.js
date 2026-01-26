@@ -117,6 +117,7 @@ api.auth = {
 
 api.rooms = {
   list: function() { return api.request('/rooms').then(function(d) { return d.rooms || []; }); },
+  getVisited: function() { return api.request('/rooms/visited').then(function(d) { return d.rooms || []; }); },
   get: function(roomId) { return api.request('/rooms/' + roomId).then(function(d) { return d.room; }); },
   create: function(name) { return api.request('/rooms', { method: 'POST', body: JSON.stringify({ name: name }) }).then(function(d) { return d.room; }); },
   update: function(roomId, updates) { return api.request('/rooms/' + roomId, { method: 'PUT', body: JSON.stringify(updates) }).then(function(d) { return d.room; }); },
@@ -1421,6 +1422,10 @@ function HomePage(props) {
   var rooms = _rooms[0];
   var setRooms = _rooms[1];
   
+  var _visitedRooms = useState([]);
+  var visitedRooms = _visitedRooms[0];
+  var setVisitedRooms = _visitedRooms[1];
+  
   var _showCreate = useState(false);
   var showCreate = _showCreate[0];
   var setShowCreate = _showCreate[1];
@@ -1453,10 +1458,16 @@ function HomePage(props) {
 
   function loadRooms() {
     setLoading(true);
-    api.rooms.list().then(function(r) {
-      if (!r || r.length === 0) return api.rooms.create('My Room').then(function(room) { return [room]; });
-      return r;
-    }).then(setRooms).finally(function() { setLoading(false); });
+    Promise.all([
+      api.rooms.list().then(function(r) {
+        if (!r || r.length === 0) return api.rooms.create('My Room').then(function(room) { return [room]; });
+        return r;
+      }),
+      api.rooms.getVisited().catch(function() { return []; })
+    ]).then(function(results) {
+      setRooms(results[0]);
+      setVisitedRooms(results[1]);
+    }).finally(function() { setLoading(false); });
   }
 
   function showNotif(msg, type) {
@@ -1494,6 +1505,27 @@ function HomePage(props) {
   function copyShareLink(roomId) {
     navigator.clipboard.writeText(location.origin + location.pathname + '#/room/' + user.id + '/' + roomId);
     showNotif('Link copied!');
+  }
+
+  function enterVisitedRoom(room) {
+    location.hash = '/room/' + room.ownerId + '/' + room.id;
+    props.onEnterRoom(room, room.ownerId);
+  }
+
+  function formatTimeAgo(dateStr) {
+    if (!dateStr) return '';
+    var date = new Date(dateStr);
+    var now = new Date();
+    var diffMs = now - date;
+    var diffMins = Math.floor(diffMs / 60000);
+    var diffHours = Math.floor(diffMs / 3600000);
+    var diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return diffMins + 'm ago';
+    if (diffHours < 24) return diffHours + 'h ago';
+    if (diffDays < 7) return diffDays + 'd ago';
+    return date.toLocaleDateString();
   }
 
   if (loading) {
@@ -1539,6 +1571,30 @@ function HomePage(props) {
                   React.createElement('button', { className: 'icon-btn', onClick: function() { copyShareLink(room.id); }, title: 'Share' }, React.createElement(Icon, { name: 'share', size: 'sm' })),
                   React.createElement('button', { className: 'icon-btn', onClick: function() { setEditingRoom(room.id); setEditName(room.name); }, title: 'Rename' }, React.createElement(Icon, { name: 'edit', size: 'sm' })),
                   React.createElement('button', { className: 'icon-btn danger', onClick: function() { deleteRoom(room.id); }, title: 'Delete' }, React.createElement(Icon, { name: 'trash', size: 'sm' }))
+                )
+              )
+            );
+          })
+        )
+      ),
+      
+      // Visited Rooms Section
+      visitedRooms.length > 0 && React.createElement('div', { className: 'rooms-section visited-rooms-section' },
+        React.createElement('div', { className: 'rooms-header' },
+          React.createElement('h2', null, '🕐 Recently Visited')
+        ),
+        React.createElement('div', { className: 'rooms-grid' },
+          visitedRooms.map(function(room) {
+            return React.createElement('div', { key: room.id, className: 'room-card visited-card' },
+              React.createElement('div', { className: 'room-card-content' },
+                React.createElement('h3', null, room.name),
+                React.createElement('div', { className: 'room-meta' },
+                  React.createElement('span', { className: 'room-owner' }, 'by ' + room.ownerName),
+                  room.onlineCount > 0 && React.createElement('span', { className: 'online-badge' }, room.onlineCount + ' online'),
+                  React.createElement('span', { className: 'last-visited' }, formatTimeAgo(room.lastVisited))
+                ),
+                React.createElement('div', { className: 'room-card-actions' },
+                  React.createElement('button', { className: 'btn primary', onClick: function() { enterVisitedRoom(room); } }, React.createElement(Icon, { name: 'enter', size: 'sm' }), ' Join')
                 )
               )
             );
@@ -1613,6 +1669,7 @@ function Room(props) {
   var fileInputRef = useRef(null);
   var syncInterval = useRef(null);
   var lastLocalChange = useRef(0);
+  var pendingBroadcast = useRef(null); // Queue broadcast during initial sync
 
   var visitorId = user ? user.id : api.getGuestId();
   var isOwner = user && user.id === hostId;
@@ -1649,12 +1706,8 @@ function Room(props) {
         
         setConnectedUsers(data.members);
         
-        // Auto-pause if room is empty (no online users)
-        var onlineCount = data.members.filter(function(m) { return m.status === 'online'; }).length;
-        if (onlineCount === 0 && currentVideo && playbackState === 'playing') {
-          console.log('Room empty, pausing video');
-          setPlaybackState('paused');
-        }
+        // Note: Removed auto-pause when room empty - it was causing issues
+        // when owner rejoins (their presence isn't registered yet on first sync)
       }
       
       if (data.playlists) {
@@ -1676,9 +1729,10 @@ function Room(props) {
         // Don't auto-select - let user choose
       }
       
-      // Skip sync if we made a local change recently
+      // Skip sync if we made a local change recently (use longer timeout during initial sync)
       var timeSinceLocalChange = Date.now() - (lastLocalChange.current || 0);
-      if (timeSinceLocalChange < 500) {
+      var syncProtectionTime = isInitialSync.current ? 5000 : 2000; // 5s during init, 2s after
+      if (timeSinceLocalChange < syncProtectionTime) {
         return;
       }
       
@@ -1762,6 +1816,14 @@ function Room(props) {
       setTimeout(function() {
         console.log('Initial sync complete, enabling broadcasts');
         isInitialSync.current = false;
+        
+        // Send any queued broadcast from user interactions during initial sync
+        if (pendingBroadcast.current) {
+          console.log('>>> Sending queued broadcast');
+          var pb = pendingBroadcast.current;
+          pendingBroadcast.current = null;
+          broadcastState(pb.video, pb.state, pb.time);
+        }
       }, 3000);
     }).catch(console.error);
     
@@ -1811,15 +1873,16 @@ function Room(props) {
   }
 
   function broadcastState(video, state, time) {
-    // Don't broadcast during initial sync to prevent video jumping for others
-    if (isInitialSync.current) {
-      console.log('>>> SKIPPING BROADCAST (initial sync)');
-      return;
-    }
-    
     // Don't broadcast local files (blob URLs) - they only work locally
     if (video && video.url && video.url.startsWith('blob:')) {
       console.log('>>> SKIPPING BROADCAST (local file)');
+      return;
+    }
+    
+    // During initial sync, queue the broadcast for later
+    if (isInitialSync.current) {
+      console.log('>>> QUEUING BROADCAST (initial sync):', state, time);
+      pendingBroadcast.current = { video: video, state: state, time: time };
       return;
     }
     
@@ -2086,7 +2149,7 @@ function Room(props) {
             onStateChange: handlePlayerStateChange,
             onSeek: handlePlayerSeek,
             onEnded: playNext,
-            isLocalChange: (Date.now() - lastLocalChange.current) < 500
+            isLocalChange: (Date.now() - lastLocalChange.current) < 2000
           }),
           React.createElement('div', { className: 'playback-controls' },
             React.createElement('button', { className: 'btn sm', onClick: playPrev, disabled: !activePlaylist || currentIndex <= 0 }, React.createElement(Icon, { name: 'prev', size: 'sm' }), ' Prev'),
@@ -2224,10 +2287,11 @@ function MultiviewApp() {
     }
   }
 
-  function handleEnterRoom(room) {
-    location.hash = '/room/' + user.id + '/' + room.id;
+  function handleEnterRoom(room, hostId) {
+    var actualHostId = hostId || room.ownerId || user.id;
+    location.hash = '/room/' + actualHostId + '/' + room.id;
     setCurrentRoom(room);
-    setRoomHostId(user.id);
+    setRoomHostId(actualHostId);
     setGuestDisplayName(user.displayName);
     setCurrentView('room');
   }
