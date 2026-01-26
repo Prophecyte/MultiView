@@ -1984,6 +1984,10 @@ function Room(props) {
   var copiedVideo = _copiedVideo[0];
   var setCopiedVideo = _copiedVideo[1];
   
+  var _queueContextMenu = useState(null);
+  var queueContextMenu = _queueContextMenu[0];
+  var setQueueContextMenu = _queueContextMenu[1];
+  
   var _isPlaylistOwner = useState(false);
   var isPlaylistOwner = _isPlaylistOwner[0];
   var setIsPlaylistOwner = _isPlaylistOwner[1];
@@ -2057,6 +2061,13 @@ function Room(props) {
   useEffect(function() { activePlaylistRef.current = activePlaylist; }, [activePlaylist]);
   useEffect(function() { currentIndexRef.current = currentIndex; }, [currentIndex]);
   useEffect(function() { currentVideoRef.current = currentVideo; }, [currentVideo]);
+  
+  // Close queue context menu on click
+  useEffect(function() {
+    function closeQueueMenu() { setQueueContextMenu(null); }
+    document.addEventListener('click', closeQueueMenu);
+    return function() { document.removeEventListener('click', closeQueueMenu); };
+  }, []);
   
   var _connectedUsers = useState([]);
   var connectedUsers = _connectedUsers[0];
@@ -2507,6 +2518,42 @@ function Room(props) {
     }).catch(function(err) { showNotif(err.message, 'error'); });
   }
 
+  function handleQueueContextMenu(e) {
+    if (!activePlaylist) return;
+    e.preventDefault();
+    setQueueContextMenu({ x: e.clientX, y: e.clientY });
+  }
+
+  function handlePlayPlaylist() {
+    if (!activePlaylist || !activePlaylist.videos || activePlaylist.videos.length === 0) return;
+    playVideo(activePlaylist.videos[0], 0);
+    setQueueContextMenu(null);
+  }
+
+  function handleExportActivePlaylist() {
+    if (!activePlaylist) return;
+    var exportData = {
+      name: activePlaylist.name,
+      videos: (activePlaylist.videos || []).map(function(v) {
+        return { title: v.title, url: v.url, videoType: v.videoType };
+      })
+    };
+    var blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = activePlaylist.name + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    setQueueContextMenu(null);
+  }
+
+  function handlePasteToActivePlaylist() {
+    if (!activePlaylist || !copiedVideo) return;
+    handlePasteVideo(activePlaylist.id);
+    setQueueContextMenu(null);
+  }
+
   function handleAddVideoToPlaylist(playlistId, video) {
     api.playlists.copyVideo(playlistId, video).then(function(newVideo) {
       setPlaylists(playlists.map(function(p) {
@@ -2642,11 +2689,28 @@ function Room(props) {
       ),
       
       React.createElement('main', { className: 'main-content' },
-        React.createElement('div', { className: 'queue-panel' },
+        React.createElement('div', { className: 'queue-panel', onContextMenu: handleQueueContextMenu },
           React.createElement('div', { className: 'queue-header' }, React.createElement('h3', null, '📜 ', activePlaylist ? activePlaylist.name : 'Select Playlist')),
           activePlaylist 
             ? React.createElement(DraggableVideoList, { videos: activePlaylist.videos || [], currentVideo: currentVideo, onPlay: playVideo, onRemove: removeVideo, onRename: renameVideo, onReorder: reorderVideos, onCopy: handleCopyVideo })
-            : React.createElement('div', { className: 'empty-queue' }, React.createElement('p', null, 'Select a playlist'))
+            : React.createElement('div', { className: 'empty-queue' }, React.createElement('p', null, 'Select a playlist')),
+          
+          // Queue panel context menu
+          queueContextMenu && activePlaylist && React.createElement('div', {
+            className: 'context-menu',
+            style: { position: 'fixed', top: queueContextMenu.y, left: queueContextMenu.x, zIndex: 10000 },
+            onClick: function(e) { e.stopPropagation(); }
+          },
+            React.createElement('button', { className: 'context-menu-item', onClick: handlePlayPlaylist },
+              React.createElement(Icon, { name: 'play', size: 'sm' }), ' Play playlist'
+            ),
+            React.createElement('button', { className: 'context-menu-item', onClick: handleExportActivePlaylist },
+              React.createElement(Icon, { name: 'download', size: 'sm' }), ' Export playlist'
+            ),
+            copiedVideo && React.createElement('button', { className: 'context-menu-item', onClick: handlePasteToActivePlaylist },
+              React.createElement(Icon, { name: 'clipboard', size: 'sm' }), ' Paste video'
+            )
+          )
         ),
         
         React.createElement('div', { className: 'video-section' },
