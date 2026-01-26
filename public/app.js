@@ -2079,6 +2079,18 @@ function Room(props) {
   var sidebarOpen = _sidebarOpen[0];
   var setSidebarOpen = _sidebarOpen[1];
   
+  var _roomName = useState(room.name);
+  var roomName = _roomName[0];
+  var setRoomName = _roomName[1];
+  
+  var _editingRoomName = useState(false);
+  var editingRoomName = _editingRoomName[0];
+  var setEditingRoomName = _editingRoomName[1];
+  
+  var _roomNameInput = useState('');
+  var roomNameInput = _roomNameInput[0];
+  var setRoomNameInput = _roomNameInput[1];
+  
   var _shareModalOpen = useState(false);
   var shareModalOpen = _shareModalOpen[0];
   var setShareModalOpen = _shareModalOpen[1];
@@ -2211,6 +2223,11 @@ function Room(props) {
       
       // Sync from server
       if (data.room) {
+        // Sync room name
+        if (data.room.name && data.room.name !== roomName) {
+          setRoomName(data.room.name);
+        }
+        
         var serverUrl = data.room.currentVideoUrl;
         var serverState = data.room.playbackState || 'paused';
         var serverTime = data.room.playbackTime || 0;
@@ -2505,6 +2522,20 @@ function Room(props) {
   }
 
   // Wrapper to select playlist and update ref
+  function handleSaveRoomName() {
+    if (!roomNameInput.trim()) {
+      setEditingRoomName(false);
+      return;
+    }
+    api.rooms.update(room.id, { name: roomNameInput.trim() }).then(function() {
+      setRoomName(roomNameInput.trim());
+      setEditingRoomName(false);
+      showNotif('Room renamed!');
+    }).catch(function(err) {
+      showNotif(err.message, 'error');
+    });
+  }
+
   function selectPlaylist(playlist) {
     activePlaylistIdRef.current = playlist ? playlist.id : null;
     setActivePlaylist(playlist);
@@ -2714,7 +2745,23 @@ function Room(props) {
       React.createElement('div', { className: 'header-left' },
         React.createElement('button', { className: 'icon-btn', onClick: function() { setSidebarOpen(!sidebarOpen); } }, React.createElement(Icon, { name: 'menu' })),
         props.onHome && React.createElement('button', { className: 'icon-btn', onClick: props.onHome, title: 'Home' }, React.createElement(Icon, { name: 'home' })),
-        React.createElement('h1', { className: 'room-title' }, room.name)
+        editingRoomName 
+          ? React.createElement('input', {
+              className: 'room-title-input',
+              value: roomNameInput,
+              onChange: function(e) { setRoomNameInput(e.target.value); },
+              onBlur: handleSaveRoomName,
+              onKeyDown: function(e) {
+                if (e.key === 'Enter') handleSaveRoomName();
+                if (e.key === 'Escape') setEditingRoomName(false);
+              },
+              autoFocus: true
+            })
+          : React.createElement('h1', { 
+              className: 'room-title' + (isOwner ? ' editable' : ''), 
+              onClick: isOwner ? function() { setEditingRoomName(true); setRoomNameInput(roomName); } : null,
+              title: isOwner ? 'Click to rename' : null
+            }, roomName)
       ),
       React.createElement('div', { className: 'header-center' },
         React.createElement('div', { className: 'url-bar' },
@@ -3008,6 +3055,16 @@ function MultiviewApp() {
   var savedTheme = localStorage.getItem('theme') || 'gold';
   document.documentElement.setAttribute('data-theme', savedTheme);
 })();
+
+// Disable browser's default right-click context menu
+// Our custom context menus will still work because they use stopPropagation
+document.addEventListener('contextmenu', function(e) {
+  // Allow default context menu on input/textarea elements for text editing
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+    return;
+  }
+  e.preventDefault();
+});
 
 // Render
 console.log('Multiview with YouTube IFrame API sync');
