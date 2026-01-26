@@ -1411,6 +1411,10 @@ function SettingsModal(props) {
   var displayName = _displayName[0];
   var setDisplayName = _displayName[1];
   
+  var _theme = useState(localStorage.getItem('theme') || 'gold');
+  var theme = _theme[0];
+  var setThemeState = _theme[1];
+  
   var _newEmail = useState('');
   var newEmail = _newEmail[0];
   var setNewEmail = _newEmail[1];
@@ -1496,6 +1500,23 @@ function SettingsModal(props) {
     });
   }
 
+  var themes = [
+    { id: 'gold', name: 'Dragon Gold', color: '#d4a824' },
+    { id: 'ember', name: 'Ember Red', color: '#ef4444' },
+    { id: 'forest', name: 'Forest', color: '#22c55e' },
+    { id: 'ocean', name: 'Ocean', color: '#3b82f6' },
+    { id: 'purple', name: 'Royal Purple', color: '#a855f7' },
+    { id: 'sunset', name: 'Sunset', color: '#f97316' },
+    { id: 'rose', name: 'Rose', color: '#ec4899' },
+    { id: 'cyan', name: 'Cyan', color: '#06b6d4' }
+  ];
+
+  function handleSetTheme(themeId) {
+    setThemeState(themeId);
+    localStorage.setItem('theme', themeId);
+    document.documentElement.setAttribute('data-theme', themeId);
+  }
+
   function handleDeleteAccount() {
     if (!confirm('Delete your account? This cannot be undone.')) return;
     setLoading(true);
@@ -1510,7 +1531,8 @@ function SettingsModal(props) {
         React.createElement('button', { className: 'settings-tab' + (tab === 'profile' ? ' active' : ''), onClick: function() { setTab('profile'); setMessage(null); } }, 'Profile'),
         React.createElement('button', { className: 'settings-tab' + (tab === 'email' ? ' active' : ''), onClick: function() { setTab('email'); setMessage(null); } }, 'Email'),
         React.createElement('button', { className: 'settings-tab' + (tab === 'password' ? ' active' : ''), onClick: function() { setTab('password'); setMessage(null); } }, 'Password'),
-        React.createElement('button', { className: 'settings-tab' + (tab === 'danger' ? ' active' : ''), onClick: function() { setTab('danger'); setMessage(null); } }, 'Account')
+        React.createElement('button', { className: 'settings-tab' + (tab === 'danger' ? ' active' : ''), onClick: function() { setTab('danger'); setMessage(null); } }, 'Account'),
+        React.createElement('button', { className: 'settings-tab' + (tab === 'theme' ? ' active' : ''), onClick: function() { setTab('theme'); setMessage(null); } }, 'Theme')
       ),
       message && React.createElement('div', { className: message.type === 'error' ? 'error-message' : 'success-message' }, message.text),
       
@@ -1559,6 +1581,22 @@ function SettingsModal(props) {
           React.createElement('h3', null, '⚠️ Danger Zone'),
           React.createElement('p', null, 'Deleting your account will permanently remove all your data.'),
           React.createElement('button', { className: 'btn danger', onClick: handleDeleteAccount, disabled: loading }, loading ? 'Deleting...' : 'Delete My Account')
+        )
+      ),
+      
+      tab === 'theme' && React.createElement('div', { className: 'settings-content' },
+        React.createElement('p', { style: { marginBottom: '12px', color: 'var(--text-secondary)' } }, 'Choose your preferred color theme'),
+        React.createElement('div', { className: 'theme-grid' },
+          themes.map(function(t) {
+            return React.createElement('div', {
+              key: t.id,
+              className: 'theme-option' + (theme === t.id ? ' active' : ''),
+              onClick: function() { handleSetTheme(t.id); }
+            },
+              React.createElement('div', { className: 'theme-swatch', style: { backgroundColor: t.color } }),
+              React.createElement('span', { className: 'theme-name' }, t.name)
+            );
+          })
         )
       )
     )
@@ -2939,6 +2977,12 @@ function MultiviewApp() {
 
   return React.createElement(AuthScreen, { onAuth: setUser });
 }
+
+// Initialize theme from localStorage
+(function() {
+  var savedTheme = localStorage.getItem('theme') || 'gold';
+  document.documentElement.setAttribute('data-theme', savedTheme);
+})();
 
 // Render
 console.log('Multiview with YouTube IFrame API sync');
