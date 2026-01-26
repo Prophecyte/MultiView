@@ -889,6 +889,26 @@ body {
   border-color: rgba(212, 168, 36, 0.3);
 }
 
+.playlist-item.hidden-playlist {
+  opacity: 0.6;
+}
+
+.playlist-item.hidden-playlist .playlist-name {
+  font-style: italic;
+}
+
+.hidden-indicator {
+  color: var(--text-muted);
+  margin-right: 4px;
+  display: flex;
+  align-items: center;
+}
+
+.sidebar-header .header-actions {
+  display: flex;
+  gap: 4px;
+}
+
 .playlist-item .drag-handle {
   color: var(--text-muted);
   cursor: grab;
