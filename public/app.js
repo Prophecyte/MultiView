@@ -152,7 +152,11 @@ api.rooms = {
 };
 
 api.playlists = {
-  list: function(roomId) { return api.request('/playlists?roomId=' + roomId).then(function(d) { return d.playlists || []; }); },
+  list: function(roomId, includeHidden) { 
+    var url = '/playlists?roomId=' + roomId;
+    if (includeHidden) url += '&includeHidden=true';
+    return api.request(url).then(function(d) { return { playlists: d.playlists || [], isOwner: d.isOwner }; }); 
+  },
   create: function(roomId, name) { return api.request('/playlists', { method: 'POST', body: JSON.stringify({ roomId: roomId, name: name }) }).then(function(d) { return d.playlist; }); },
   update: function(playlistId, updates) { return api.request('/playlists/' + playlistId, { method: 'PUT', body: JSON.stringify(updates) }).then(function(d) { return d.playlist; }); },
   delete: function(playlistId) { return api.request('/playlists/' + playlistId, { method: 'DELETE' }); },
@@ -160,7 +164,10 @@ api.playlists = {
   removeVideo: function(playlistId, videoId) { return api.request('/playlists/' + playlistId + '/videos/' + videoId, { method: 'DELETE' }); },
   updateVideo: function(playlistId, videoId, updates) { return api.request('/playlists/' + playlistId + '/videos/' + videoId, { method: 'PUT', body: JSON.stringify(updates) }); },
   reorderVideos: function(playlistId, videoIds) { return api.request('/playlists/' + playlistId + '/reorder', { method: 'PUT', body: JSON.stringify({ videoIds: videoIds }) }); },
-  reorder: function(roomId, playlistIds) { return api.request('/playlists/reorder', { method: 'PUT', body: JSON.stringify({ roomId: roomId, playlistIds: playlistIds }) }); }
+  reorder: function(roomId, playlistIds) { return api.request('/playlists/reorder', { method: 'PUT', body: JSON.stringify({ roomId: roomId, playlistIds: playlistIds }) }); },
+  setHidden: function(playlistId, hidden) { return api.request('/playlists/' + playlistId + '/hide', { method: 'PUT', body: JSON.stringify({ hidden: hidden }) }); },
+  importPlaylist: function(targetRoomId, playlist) { return api.request('/playlists/import', { method: 'POST', body: JSON.stringify({ targetRoomId: targetRoomId, playlist: playlist }) }); },
+  copyVideo: function(playlistId, video) { return api.request('/playlists/' + playlistId + '/copy-video', { method: 'POST', body: JSON.stringify({ video: video }) }); }
 };
 
 api.presence = {
@@ -257,7 +264,12 @@ function Icon(props) {
     grip: React.createElement(React.Fragment, null, React.createElement('circle', { cx: '9', cy: '5', r: '1.5' }), React.createElement('circle', { cx: '9', cy: '12', r: '1.5' }), React.createElement('circle', { cx: '9', cy: '19', r: '1.5' }), React.createElement('circle', { cx: '15', cy: '5', r: '1.5' }), React.createElement('circle', { cx: '15', cy: '12', r: '1.5' }), React.createElement('circle', { cx: '15', cy: '19', r: '1.5' })),
     shuffle: React.createElement(React.Fragment, null, React.createElement('polyline', { points: '16,3 21,3 21,8' }), React.createElement('line', { x1: '4', y1: '20', x2: '21', y2: '3' }), React.createElement('polyline', { points: '21,16 21,21 16,21' }), React.createElement('line', { x1: '15', y1: '15', x2: '21', y2: '21' }), React.createElement('line', { x1: '4', y1: '4', x2: '9', y2: '9' })),
     loop: React.createElement(React.Fragment, null, React.createElement('polyline', { points: '17,1 21,5 17,9' }), React.createElement('path', { d: 'M3,11V9a4,4,0,0,1,4-4h14' }), React.createElement('polyline', { points: '7,23 3,19 7,15' }), React.createElement('path', { d: 'M21,13v2a4,4,0,0,1-4,4H3' })),
-    autoplay: React.createElement(React.Fragment, null, React.createElement('polygon', { points: '5,3 19,12 5,21' }), React.createElement('line', { x1: '19', y1: '5', x2: '19', y2: '19' }))
+    autoplay: React.createElement(React.Fragment, null, React.createElement('polygon', { points: '5,3 19,12 5,21' }), React.createElement('line', { x1: '19', y1: '5', x2: '19', y2: '19' })),
+    eye: React.createElement(React.Fragment, null, React.createElement('path', { d: 'M1,12S5,5,12,5s11,7,11,7-4,7-11,7S1,12,1,12Z' }), React.createElement('circle', { cx: '12', cy: '12', r: '3' })),
+    eyeOff: React.createElement(React.Fragment, null, React.createElement('path', { d: 'M17.94,17.94A10.07,10.07,0,0,1,12,20c-7,0-11-8-11-8a18.45,18.45,0,0,1,5.06-5.94' }), React.createElement('path', { d: 'M9.9,4.24A9.12,9.12,0,0,1,12,4c7,0,11,8,11,8a18.5,18.5,0,0,1-2.16,3.19' }), React.createElement('path', { d: 'M14.12,14.12a3,3,0,1,1-4.24-4.24' }), React.createElement('line', { x1: '1', y1: '1', x2: '23', y2: '23' })),
+    copy: React.createElement(React.Fragment, null, React.createElement('rect', { x: '9', y: '9', width: '13', height: '13', rx: '2', ry: '2' }), React.createElement('path', { d: 'M5,15H4a2,2,0,0,1-2-2V4A2,2,0,0,1,4,2h9a2,2,0,0,1,2,2V5' })),
+    clipboard: React.createElement(React.Fragment, null, React.createElement('path', { d: 'M16,4h2a2,2,0,0,1,2,2V20a2,2,0,0,1-2,2H6a2,2,0,0,1-2-2V6A2,2,0,0,1,6,4H8' }), React.createElement('rect', { x: '8', y: '2', width: '8', height: '4', rx: '1', ry: '1' })),
+    download: React.createElement(React.Fragment, null, React.createElement('path', { d: 'M21,15v4a2,2,0,0,1-2,2H5a2,2,0,0,1-2-2V15' }), React.createElement('polyline', { points: '7,10 12,15 17,10' }), React.createElement('line', { x1: '12', y1: '15', x2: '12', y2: '3' }))
   };
   return React.createElement('svg', { width: s, height: s, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round' }, paths[name] || null);
 }
@@ -852,7 +864,7 @@ function ConnectedUsers(props) {
 }
 
 // ============================================
-// Draggable Video List with Rename
+// Draggable Video List with Rename and Copy
 // ============================================
 function DraggableVideoList(props) {
   var videos = props.videos || [];
@@ -861,6 +873,7 @@ function DraggableVideoList(props) {
   var onRemove = props.onRemove;
   var onRename = props.onRename;
   var onReorder = props.onReorder;
+  var onCopy = props.onCopy;
   
   var _dragItem = useState(null);
   var dragItem = _dragItem[0];
@@ -877,10 +890,22 @@ function DraggableVideoList(props) {
   var _editTitle = useState('');
   var editTitle = _editTitle[0];
   var setEditTitle = _editTitle[1];
+  
+  var _contextMenu = useState(null);
+  var contextMenu = _contextMenu[0];
+  var setContextMenu = _contextMenu[1];
 
-  function handleDragStart(e, index) {
+  useEffect(function() {
+    function closeMenu() { setContextMenu(null); }
+    document.addEventListener('click', closeMenu);
+    return function() { document.removeEventListener('click', closeMenu); };
+  }, []);
+
+  function handleDragStart(e, index, video) {
     setDragItem(index);
-    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.effectAllowed = 'copyMove';
+    e.dataTransfer.setData('text/plain', JSON.stringify(video));
+    e.dataTransfer.setData('application/x-video-item', JSON.stringify(video));
   }
 
   function handleDragOver(e, index) {
@@ -924,6 +949,11 @@ function DraggableVideoList(props) {
     setEditTitle('');
   }
 
+  function handleContextMenu(e, video) {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, video: video });
+  }
+
   if (videos.length === 0) {
     return React.createElement('div', { className: 'empty-queue' }, React.createElement('p', null, 'No videos in playlist'));
   }
@@ -940,10 +970,11 @@ function DraggableVideoList(props) {
         key: v.id, 
         className: 'video-item' + (isPlaying ? ' playing' : '') + (isDragging ? ' dragging' : '') + (isDragOver ? ' drag-over' : ''),
         draggable: !isEditing,
-        onDragStart: function(e) { handleDragStart(e, i); },
+        onDragStart: function(e) { handleDragStart(e, i, v); },
         onDragOver: function(e) { handleDragOver(e, i); },
         onDrop: function(e) { handleDrop(e, i); },
-        onDragEnd: handleDragEnd
+        onDragEnd: handleDragEnd,
+        onContextMenu: function(e) { handleContextMenu(e, v); }
       },
         React.createElement('div', { className: 'video-item-top' },
           React.createElement('div', { className: 'drag-handle' }, React.createElement(Icon, { name: 'grip', size: 'sm' })),
@@ -966,10 +997,28 @@ function DraggableVideoList(props) {
         React.createElement('div', { className: 'video-actions' },
           React.createElement('button', { className: 'icon-btn sm primary', onClick: function(e) { e.stopPropagation(); onPlay(v, i); }, title: 'Play' }, React.createElement(Icon, { name: 'play', size: 'sm' })),
           React.createElement('button', { className: 'icon-btn sm', onClick: function(e) { e.stopPropagation(); startRename(v); }, title: 'Rename' }, React.createElement(Icon, { name: 'edit', size: 'sm' })),
+          onCopy && React.createElement('button', { className: 'icon-btn sm', onClick: function(e) { e.stopPropagation(); onCopy(v); }, title: 'Copy to clipboard' }, React.createElement(Icon, { name: 'copy', size: 'sm' })),
           React.createElement('button', { className: 'icon-btn sm danger', onClick: function(e) { e.stopPropagation(); onRemove(v.id); }, title: 'Remove' }, React.createElement(Icon, { name: 'trash', size: 'sm' }))
         )
       );
-    })
+    }),
+    
+    // Context menu
+    contextMenu && React.createElement('div', {
+      className: 'context-menu',
+      style: { position: 'fixed', top: contextMenu.y, left: contextMenu.x, zIndex: 10000 },
+      onClick: function(e) { e.stopPropagation(); }
+    },
+      React.createElement('button', { className: 'context-menu-item', onClick: function() { onPlay(contextMenu.video, videos.indexOf(contextMenu.video)); setContextMenu(null); } },
+        React.createElement(Icon, { name: 'play', size: 'sm' }), ' Play'
+      ),
+      onCopy && React.createElement('button', { className: 'context-menu-item', onClick: function() { onCopy(contextMenu.video); setContextMenu(null); } },
+        React.createElement(Icon, { name: 'copy', size: 'sm' }), ' Copy to clipboard'
+      ),
+      React.createElement('button', { className: 'context-menu-item danger', onClick: function() { onRemove(contextMenu.video.id); setContextMenu(null); } },
+        React.createElement(Icon, { name: 'trash', size: 'sm' }), ' Remove'
+      )
+    )
   );
 }
 
@@ -984,6 +1033,13 @@ function PlaylistPanel(props) {
   var onDelete = props.onDelete;
   var onRename = props.onRename;
   var onReorder = props.onReorder;
+  var onHide = props.onHide;
+  var onAddVideoToPlaylist = props.onAddVideoToPlaylist;
+  var onExport = props.onExport;
+  var onImport = props.onImport;
+  var isOwner = props.isOwner;
+  var copiedVideo = props.copiedVideo;
+  var onPaste = props.onPaste;
   
   var _showCreate = useState(false);
   var showCreate = _showCreate[0];
@@ -1008,6 +1064,28 @@ function PlaylistPanel(props) {
   var _dragOver = useState(null);
   var dragOver = _dragOver[0];
   var setDragOver = _dragOver[1];
+  
+  var _videoDragOver = useState(null);
+  var videoDragOver = _videoDragOver[0];
+  var setVideoDragOver = _videoDragOver[1];
+  
+  var _contextMenu = useState(null);
+  var contextMenu = _contextMenu[0];
+  var setContextMenu = _contextMenu[1];
+  
+  var _showImport = useState(false);
+  var showImport = _showImport[0];
+  var setShowImport = _showImport[1];
+  
+  var _importData = useState('');
+  var importData = _importData[0];
+  var setImportData = _importData[1];
+
+  useEffect(function() {
+    function closeMenu() { setContextMenu(null); }
+    document.addEventListener('click', closeMenu);
+    return function() { document.removeEventListener('click', closeMenu); };
+  }, []);
 
   function handleCreate() {
     if (!newName.trim()) return;
@@ -1032,9 +1110,39 @@ function PlaylistPanel(props) {
     if (dragItem === null) return;
     setDragOver(index);
   }
+  
+  function handleVideoDragOver(e, playlistId) {
+    e.preventDefault();
+    e.stopPropagation();
+    setVideoDragOver(playlistId);
+  }
+  
+  function handleVideoDrop(e, playlist) {
+    e.preventDefault();
+    e.stopPropagation();
+    setVideoDragOver(null);
+    
+    try {
+      var videoData = e.dataTransfer.getData('application/x-video-item');
+      if (videoData && onAddVideoToPlaylist) {
+        var video = JSON.parse(videoData);
+        onAddVideoToPlaylist(playlist.id, video);
+      }
+    } catch (err) {
+      console.error('Drop error:', err);
+    }
+  }
 
   function handleDrop(e, index) {
     e.preventDefault();
+    
+    // Check if this is a video drop
+    var videoData = e.dataTransfer.getData('application/x-video-item');
+    if (videoData) {
+      setVideoDragOver(null);
+      return; // Let handleVideoDrop handle it
+    }
+    
     if (dragItem === null || dragItem === index) {
       setDragItem(null);
       setDragOver(null);
@@ -1047,12 +1155,51 @@ function PlaylistPanel(props) {
     setDragItem(null);
     setDragOver(null);
   }
+  
+  function handleContextMenu(e, playlist) {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, playlist: playlist });
+  }
+  
+  function handleExport(playlist) {
+    var exportData = {
+      name: playlist.name,
+      videos: (playlist.videos || []).map(function(v) {
+        return { title: v.title, url: v.url, videoType: v.videoType };
+      })
+    };
+    var blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = playlist.name + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+  
+  function handleImportSubmit() {
+    try {
+      var data = JSON.parse(importData);
+      if (data.name && onImport) {
+        onImport(data);
+        setShowImport(false);
+        setImportData('');
+      }
+    } catch (err) {
+      alert('Invalid JSON data');
+    }
+  }
 
   return React.createElement('div', { className: 'playlist-panel' },
     React.createElement('div', { className: 'sidebar-header' },
       React.createElement('h3', null, 'Playlists'),
-      React.createElement('button', { className: 'icon-btn sm', onClick: function() { setShowCreate(true); } }, 
-        React.createElement(Icon, { name: 'plus', size: 'sm' })
+      React.createElement('div', { className: 'header-actions' },
+        React.createElement('button', { className: 'icon-btn sm', onClick: function() { setShowImport(true); }, title: 'Import playlist' }, 
+          React.createElement(Icon, { name: 'upload', size: 'sm' })
+        ),
+        React.createElement('button', { className: 'icon-btn sm', onClick: function() { setShowCreate(true); }, title: 'New playlist' }, 
+          React.createElement(Icon, { name: 'plus', size: 'sm' })
+        )
       )
     ),
     showCreate && React.createElement('div', { className: 'create-playlist-form' },
@@ -1060,6 +1207,19 @@ function PlaylistPanel(props) {
       React.createElement('div', { className: 'form-actions' },
         React.createElement('button', { className: 'btn primary sm', onClick: handleCreate }, 'Create'),
         React.createElement('button', { className: 'btn sm', onClick: function() { setShowCreate(false); } }, 'Cancel')
+      )
+    ),
+    showImport && React.createElement('div', { className: 'create-playlist-form' },
+      React.createElement('textarea', { 
+        value: importData, 
+        onChange: function(e) { setImportData(e.target.value); }, 
+        placeholder: 'Paste playlist JSON here...', 
+        rows: 4,
+        style: { width: '100%', resize: 'vertical' }
+      }),
+      React.createElement('div', { className: 'form-actions' },
+        React.createElement('button', { className: 'btn primary sm', onClick: handleImportSubmit }, 'Import'),
+        React.createElement('button', { className: 'btn sm', onClick: function() { setShowImport(false); setImportData(''); } }, 'Cancel')
       )
     ),
     React.createElement('div', { className: 'playlists-list' },
@@ -1070,17 +1230,28 @@ function PlaylistPanel(props) {
             var isEditing = editingId === p.id;
             var isDragging = dragItem === i;
             var isDragOver = dragOver === i;
+            var isVideoDragOver = videoDragOver === p.id;
+            var isHidden = p.hidden;
             
             return React.createElement('div', { 
               key: p.id, 
-              className: 'playlist-item' + (isActive ? ' active' : '') + (isDragging ? ' dragging' : '') + (isDragOver ? ' drag-over' : ''),
+              className: 'playlist-item' + (isActive ? ' active' : '') + (isDragging ? ' dragging' : '') + (isDragOver || isVideoDragOver ? ' drag-over' : '') + (isHidden ? ' hidden-playlist' : ''),
               draggable: !isEditing,
               onDragStart: function(e) { handleDragStart(e, i); },
-              onDragOver: function(e) { handleDragOver(e, i); },
-              onDrop: function(e) { handleDrop(e, i); },
-              onDragEnd: function() { setDragItem(null); setDragOver(null); }
+              onDragOver: function(e) { 
+                handleDragOver(e, i);
+                handleVideoDragOver(e, p.id);
+              },
+              onDrop: function(e) { 
+                handleDrop(e, i);
+                handleVideoDrop(e, p);
+              },
+              onDragEnd: function() { setDragItem(null); setDragOver(null); },
+              onDragLeave: function() { setVideoDragOver(null); },
+              onContextMenu: function(e) { handleContextMenu(e, p); }
             },
               React.createElement('div', { className: 'drag-handle' }, React.createElement(Icon, { name: 'grip', size: 'sm' })),
+              isHidden && React.createElement('span', { className: 'hidden-indicator', title: 'Hidden from guests' }, React.createElement(Icon, { name: 'eyeOff', size: 'sm' })),
               isEditing 
                 ? React.createElement('input', { className: 'playlist-edit-input', value: editName, onChange: function(e) { setEditName(e.target.value); }, onBlur: function() { handleRename(p.id); }, onKeyDown: function(e) { if (e.key === 'Enter') handleRename(p.id); if (e.key === 'Escape') { setEditingId(null); setEditName(''); } }, autoFocus: true })
                 : React.createElement('button', { className: 'playlist-select', onClick: function() { onSelect(p); } },
@@ -1093,6 +1264,27 @@ function PlaylistPanel(props) {
               )
             );
           })
+    ),
+    
+    // Context menu
+    contextMenu && React.createElement('div', {
+      className: 'context-menu',
+      style: { position: 'fixed', top: contextMenu.y, left: contextMenu.x, zIndex: 10000 },
+      onClick: function(e) { e.stopPropagation(); }
+    },
+      React.createElement('button', { className: 'context-menu-item', onClick: function() { handleExport(contextMenu.playlist); setContextMenu(null); } },
+        React.createElement(Icon, { name: 'download', size: 'sm' }), ' Export playlist'
+      ),
+      copiedVideo && React.createElement('button', { className: 'context-menu-item', onClick: function() { onPaste(contextMenu.playlist.id); setContextMenu(null); } },
+        React.createElement(Icon, { name: 'clipboard', size: 'sm' }), ' Paste video here'
+      ),
+      isOwner && onHide && React.createElement('button', { className: 'context-menu-item', onClick: function() { onHide(contextMenu.playlist.id, !contextMenu.playlist.hidden); setContextMenu(null); } },
+        React.createElement(Icon, { name: contextMenu.playlist.hidden ? 'eye' : 'eyeOff', size: 'sm' }), 
+        contextMenu.playlist.hidden ? ' Show to guests' : ' Hide from guests'
+      ),
+      React.createElement('button', { className: 'context-menu-item danger', onClick: function() { onDelete(contextMenu.playlist.id); setContextMenu(null); } },
+        React.createElement(Icon, { name: 'trash', size: 'sm' }), ' Delete'
+      )
     )
   );
 }
@@ -1766,6 +1958,14 @@ function Room(props) {
   var setActivePlaylist = _activePlaylist[1];
   var activePlaylistIdRef = useRef(null); // Track active playlist ID persistently
   
+  var _copiedVideo = useState(null);
+  var copiedVideo = _copiedVideo[0];
+  var setCopiedVideo = _copiedVideo[1];
+  
+  var _isPlaylistOwner = useState(false);
+  var isPlaylistOwner = _isPlaylistOwner[0];
+  var setIsPlaylistOwner = _isPlaylistOwner[1];
+  
   var _currentVideo = useState(null);
   var currentVideo = _currentVideo[0];
   var setCurrentVideo = _currentVideo[1];
@@ -1886,6 +2086,9 @@ function Room(props) {
       
       if (data.playlists) {
         setPlaylists(data.playlists);
+        if (data.isPlaylistOwner !== undefined) {
+          setIsPlaylistOwner(data.isPlaylistOwner);
+        }
         
         // Use ref to reliably track which playlist should be active
         var targetId = activePlaylistIdRef.current;
@@ -2239,6 +2442,56 @@ function Room(props) {
     api.playlists.reorder(room.id, ids).catch(console.error);
   }
 
+  function handleHidePlaylist(id, hidden) {
+    api.playlists.setHidden(id, hidden).then(function() {
+      setPlaylists(playlists.map(function(p) { return p.id === id ? Object.assign({}, p, { hidden: hidden }) : p; }));
+      showNotif(hidden ? 'Playlist hidden from guests' : 'Playlist visible to guests');
+    }).catch(function(err) { showNotif(err.message, 'error'); });
+  }
+
+  function handleImportPlaylist(playlistData) {
+    api.playlists.importPlaylist(room.id, playlistData).then(function() {
+      showNotif('Playlist imported!');
+      // Sync will pick up the new playlist
+    }).catch(function(err) { showNotif(err.message, 'error'); });
+  }
+
+  function handleCopyVideo(video) {
+    setCopiedVideo(video);
+    showNotif('Video copied to clipboard');
+  }
+
+  function handlePasteVideo(playlistId) {
+    if (!copiedVideo) return;
+    api.playlists.copyVideo(playlistId, copiedVideo).then(function(video) {
+      setPlaylists(playlists.map(function(p) {
+        if (p.id === playlistId) {
+          return Object.assign({}, p, { videos: (p.videos || []).concat([video]) });
+        }
+        return p;
+      }));
+      if (activePlaylist && activePlaylist.id === playlistId) {
+        setActivePlaylist(Object.assign({}, activePlaylist, { videos: (activePlaylist.videos || []).concat([video]) }));
+      }
+      showNotif('Video pasted!');
+    }).catch(function(err) { showNotif(err.message, 'error'); });
+  }
+
+  function handleAddVideoToPlaylist(playlistId, video) {
+    api.playlists.copyVideo(playlistId, video).then(function(newVideo) {
+      setPlaylists(playlists.map(function(p) {
+        if (p.id === playlistId) {
+          return Object.assign({}, p, { videos: (p.videos || []).concat([newVideo]) });
+        }
+        return p;
+      }));
+      if (activePlaylist && activePlaylist.id === playlistId) {
+        setActivePlaylist(Object.assign({}, activePlaylist, { videos: (activePlaylist.videos || []).concat([newVideo]) }));
+      }
+      showNotif('Video added to playlist!');
+    }).catch(function(err) { showNotif(err.message, 'error'); });
+  }
+
   function handleAddUrl() {
     if (!activePlaylist || !urlInput.trim()) return;
     var parsed = parseVideoUrl(urlInput.trim());
@@ -2341,14 +2594,28 @@ function Room(props) {
     
     React.createElement('div', { className: 'dashboard-content' },
       React.createElement('aside', { className: 'sidebar' + (sidebarOpen ? '' : ' closed') },
-        React.createElement(PlaylistPanel, { playlists: playlists, activePlaylist: activePlaylist, onSelect: selectPlaylist, onCreate: handleCreatePlaylist, onDelete: handleDeletePlaylist, onRename: handleRenamePlaylist, onReorder: handleReorderPlaylists })
+        React.createElement(PlaylistPanel, { 
+          playlists: playlists, 
+          activePlaylist: activePlaylist, 
+          onSelect: selectPlaylist, 
+          onCreate: handleCreatePlaylist, 
+          onDelete: handleDeletePlaylist, 
+          onRename: handleRenamePlaylist, 
+          onReorder: handleReorderPlaylists,
+          onHide: handleHidePlaylist,
+          onAddVideoToPlaylist: handleAddVideoToPlaylist,
+          onImport: handleImportPlaylist,
+          isOwner: isPlaylistOwner,
+          copiedVideo: copiedVideo,
+          onPaste: handlePasteVideo
+        })
       ),
       
       React.createElement('main', { className: 'main-content' },
         React.createElement('div', { className: 'queue-panel' },
           React.createElement('div', { className: 'queue-header' }, React.createElement('h3', null, '📜 ', activePlaylist ? activePlaylist.name : 'Select Playlist')),
           activePlaylist 
-            ? React.createElement(DraggableVideoList, { videos: activePlaylist.videos || [], currentVideo: currentVideo, onPlay: playVideo, onRemove: removeVideo, onRename: renameVideo, onReorder: reorderVideos })
+            ? React.createElement(DraggableVideoList, { videos: activePlaylist.videos || [], currentVideo: currentVideo, onPlay: playVideo, onRemove: removeVideo, onRename: renameVideo, onReorder: reorderVideos, onCopy: handleCopyVideo })
             : React.createElement('div', { className: 'empty-queue' }, React.createElement('p', null, 'Select a playlist'))
         ),
         
