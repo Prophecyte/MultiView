@@ -295,6 +295,9 @@ function YouTubePlayer(props) {
   // Use refs to track latest props for use in callbacks
   var latestStateRef = useRef(playbackState);
   var latestTimeRef = useRef(playbackTime);
+  var onEndedRef = useRef(onEnded);
+  var onStateChangeRef = useRef(onStateChange);
+  var onSeekRef = useRef(onSeek);
   
   // Keep refs updated
   useEffect(function() {
@@ -304,6 +307,18 @@ function YouTubePlayer(props) {
   useEffect(function() {
     latestTimeRef.current = playbackTime;
   }, [playbackTime]);
+  
+  useEffect(function() {
+    onEndedRef.current = onEnded;
+  }, [onEnded]);
+  
+  useEffect(function() {
+    onStateChangeRef.current = onStateChange;
+  }, [onStateChange]);
+  
+  useEffect(function() {
+    onSeekRef.current = onSeek;
+  }, [onSeek]);
 
   // Load YouTube API once
   useEffect(function() {
@@ -379,8 +394,8 @@ function YouTubePlayer(props) {
                 if (timeDiff > 1 && Math.abs(currentTime - lastReportedSeek.current) > 1) {
                   console.log('YT: User seeked to', currentTime.toFixed(1));
                   lastReportedSeek.current = currentTime;
-                  if (onSeek) {
-                    onSeek(currentTime);
+                  if (onSeekRef.current) {
+                    onSeekRef.current(currentTime);
                   }
                 }
                 lastKnownTime.current = currentTime;
@@ -392,19 +407,19 @@ function YouTubePlayer(props) {
             if (Date.now() - lastCommandTime.current < 300) return;
             
             // YT states: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering
-            if (event.data === 0 && onEnded) {
+            if (event.data === 0 && onEndedRef.current) {
               console.log('YT: Video ended');
-              onEnded();
-            } else if (event.data === 1 && onStateChange) {
+              onEndedRef.current();
+            } else if (event.data === 1 && onStateChangeRef.current) {
               var time = playerRef.current.getCurrentTime();
               console.log('YT: User played at', time.toFixed(1));
               lastKnownTime.current = time;
-              onStateChange('playing', time);
-            } else if (event.data === 2 && onStateChange) {
+              onStateChangeRef.current('playing', time);
+            } else if (event.data === 2 && onStateChangeRef.current) {
               var time = playerRef.current.getCurrentTime();
               console.log('YT: User paused at', time.toFixed(1));
               lastKnownTime.current = time;
-              onStateChange('paused', time);
+              onStateChangeRef.current('paused', time);
             }
           }
         }
@@ -1808,10 +1823,18 @@ function Room(props) {
   var shuffleRef = useRef(shuffle);
   var loopRef = useRef(loop);
   
+  // Refs for playlist state (avoid stale closures in callbacks)
+  var activePlaylistRef = useRef(activePlaylist);
+  var currentIndexRef = useRef(currentIndex);
+  var currentVideoRef = useRef(currentVideo);
+  
   // Keep refs updated when state changes
   useEffect(function() { autoplayRef.current = autoplay; }, [autoplay]);
   useEffect(function() { shuffleRef.current = shuffle; }, [shuffle]);
   useEffect(function() { loopRef.current = loop; }, [loop]);
+  useEffect(function() { activePlaylistRef.current = activePlaylist; }, [activePlaylist]);
+  useEffect(function() { currentIndexRef.current = currentIndex; }, [currentIndex]);
+  useEffect(function() { currentVideoRef.current = currentVideo; }, [currentVideo]);
   
   var _connectedUsers = useState([]);
   var connectedUsers = _connectedUsers[0];
@@ -2118,23 +2141,26 @@ function Room(props) {
   }
 
   function handleVideoEnded() {
-    // Use refs to get current toggle values (avoid stale closures)
+    // Use refs to get current values (avoid stale closures)
     var isLoop = loopRef.current;
     var isShuffle = shuffleRef.current;
     var isAutoplay = autoplayRef.current;
+    var playlist = activePlaylistRef.current;
+    var idx = currentIndexRef.current;
+    var video = currentVideoRef.current;
     
-    console.log('Video ended - loop:', isLoop, 'shuffle:', isShuffle, 'autoplay:', isAutoplay);
+    console.log('Video ended - loop:', isLoop, 'shuffle:', isShuffle, 'autoplay:', isAutoplay, 'index:', idx);
     
     // Loop: replay current video
     if (isLoop) {
       setPlaybackTime(0);
       setPlaybackState('playing');
-      broadcastState(currentVideo, 'playing', 0);
+      broadcastState(video, 'playing', 0);
       return;
     }
     
-    if (!activePlaylist) return;
-    var videos = activePlaylist.videos || [];
+    if (!playlist) return;
+    var videos = playlist.videos || [];
     if (videos.length === 0) return;
     
     // Shuffle: play random video from playlist
@@ -2142,7 +2168,7 @@ function Room(props) {
       // Get a truly random index different from current
       var availableIndices = [];
       for (var i = 0; i < videos.length; i++) {
-        if (i !== currentIndex) availableIndices.push(i);
+        if (i !== idx) availableIndices.push(i);
       }
       
       if (availableIndices.length > 0) {
@@ -2152,14 +2178,14 @@ function Room(props) {
         // Only one video, replay it
         setPlaybackTime(0);
         setPlaybackState('playing');
-        broadcastState(currentVideo, 'playing', 0);
+        broadcastState(video, 'playing', 0);
       }
       return;
     }
     
     // Autoplay: play next video in order
-    if (isAutoplay && currentIndex < videos.length - 1) {
-      playVideo(videos[currentIndex + 1], currentIndex + 1);
+    if (isAutoplay && idx < videos.length - 1) {
+      playVideo(videos[idx + 1], idx + 1);
     }
   }
 
