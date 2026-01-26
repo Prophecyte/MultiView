@@ -438,19 +438,27 @@ function YouTubePlayer(props) {
               
               try {
                 var currentTime = playerRef.current.getCurrentTime();
+                var duration = playerRef.current.getDuration();
                 var expectedTime = lastKnownTime.current;
                 var playerState = playerRef.current.getPlayerState();
                 
-                // Check for video ended (state 0) - backup for background tabs
-                if (playerState === 0 && onEndedRef.current && !handledEnded.current) {
-                  console.log('YT: Video ended (detected via interval)');
+                // Check for video ended - multiple detection methods for reliability
+                // Method 1: State is 0 (ended)
+                // Method 2: Current time is at or past duration (for background tabs where state event missed)
+                // Method 3: State is paused/unstarted and we're at the end (YouTube sometimes goes to state 2 or -1 at end)
+                var isStateEnded = playerState === 0;
+                var isAtEnd = duration > 0 && currentTime > 0 && currentTime >= (duration - 0.5);
+                var isPausedAtEnd = (playerState === 2 || playerState === -1) && isAtEnd;
+                
+                if ((isStateEnded || isPausedAtEnd) && onEndedRef.current && !handledEnded.current) {
+                  console.log('YT: Video ended (interval check - state:', playerState, 'time:', currentTime.toFixed(1), '/', duration.toFixed(1), ')');
                   handledEnded.current = true;
                   onEndedRef.current();
                   return;
                 }
                 
-                // Reset handledEnded flag when video is playing
-                if (playerState === 1) {
+                // Reset handledEnded flag only when video is clearly playing and not near the end
+                if (playerState === 1 && duration > 0 && (duration - currentTime) > 3) {
                   handledEnded.current = false;
                 }
                 
@@ -518,6 +526,34 @@ function YouTubePlayer(props) {
     };
   }, [videoId]);
 
+  // Check for video end when tab becomes visible again (backup for background throttling)
+  useEffect(function() {
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'visible' && playerRef.current && isReady.current) {
+        try {
+          var playerState = playerRef.current.getPlayerState();
+          var currentTime = playerRef.current.getCurrentTime();
+          var duration = playerRef.current.getDuration();
+          
+          var isStateEnded = playerState === 0;
+          var isAtEnd = duration > 0 && currentTime > 0 && currentTime >= (duration - 0.5);
+          var isPausedAtEnd = (playerState === 2 || playerState === -1) && isAtEnd;
+          
+          if ((isStateEnded || isPausedAtEnd) && onEndedRef.current && !handledEnded.current) {
+            console.log('YT: Video ended (visibility check - state:', playerState, 'time:', currentTime.toFixed(1), '/', duration.toFixed(1), ')');
+            handledEnded.current = true;
+            onEndedRef.current();
+          }
+        } catch (e) {}
+      }
+    }
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return function() {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
   // Apply playback state changes from sync
   useEffect(function() {
     if (!isReady.current || !playerRef.current) return;
@@ -525,15 +561,16 @@ function YouTubePlayer(props) {
     function applyState() {
       try {
         var currentState = playerRef.current.getPlayerState();
-        // 1 = playing, 2 = paused, 3 = buffering, -1 = unstarted
+        // 1 = playing, 2 = paused, 3 = buffering, -1 = unstarted, 0 = ended
         
         if (playbackState === 'playing' && currentState !== 1) {
           console.log('>>> Sending PLAY command (current state:', currentState, ')');
           lastCommandTime.current = Date.now();
           playerRef.current.playVideo();
           
-          // Retry play after a short delay if still buffering/unstarted
-          if (currentState === 3 || currentState === -1 || currentState === 2) {
+          // Retry play after a short delay if not playing yet
+          // Include state 0 (ended) as it needs time to restart
+          if (currentState === 0 || currentState === 3 || currentState === -1 || currentState === 2) {
             setTimeout(function() {
               if (playerRef.current && playbackState === 'playing') {
                 var state = playerRef.current.getPlayerState();
@@ -2534,9 +2571,14 @@ function Room(props) {
     
     // Loop: replay current video
     if (isLoop) {
+      // Force state change by going to paused first, then playing
+      // This ensures the useEffect triggers even if state was already 'playing'
+      setPlaybackState('paused');
       setPlaybackTime(0);
-      setPlaybackState('playing');
-      broadcastState(video, 'playing', 0);
+      setTimeout(function() {
+        setPlaybackState('playing');
+        broadcastState(video, 'playing', 0);
+      }, 50);
       return;
     }
     
@@ -2556,10 +2598,13 @@ function Room(props) {
         var randomIdx = availableIndices[Math.floor(Math.random() * availableIndices.length)];
         playVideo(videos[randomIdx], randomIdx);
       } else if (videos.length === 1) {
-        // Only one video, replay it
+        // Only one video, replay it - force state change
+        setPlaybackState('paused');
         setPlaybackTime(0);
-        setPlaybackState('playing');
-        broadcastState(video, 'playing', 0);
+        setTimeout(function() {
+          setPlaybackState('playing');
+          broadcastState(video, 'playing', 0);
+        }, 50);
       }
       return;
     }
