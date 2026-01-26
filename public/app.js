@@ -1827,10 +1827,9 @@ function Room(props) {
         // Do not auto-select - let user choose
       }
       
-      // Skip sync if we made a local change recently (use longer timeout during initial sync)
+      // Skip sync if we made a local change recently
       var timeSinceLocalChange = Date.now() - (lastLocalChange.current || 0);
-      var syncProtectionTime = isInitialSync.current ? 5000 : 2000; // 5s during init, 2s after
-      if (timeSinceLocalChange < syncProtectionTime) {
+      if (timeSinceLocalChange < 2000) {
         return;
       }
       
@@ -2004,7 +2003,13 @@ function Room(props) {
     console.log('Player state changed:', state, 'at', time);
     lastSyncedState.current = state;
     lastSyncedTime.current = time;
-    lastLocalChange.current = Date.now();
+    
+    // Only mark as local change if not during initial sync
+    // This prevents player load events from blocking sync
+    if (!isInitialSync.current) {
+      lastLocalChange.current = Date.now();
+    }
+    
     setPlaybackState(state);
     setPlaybackTime(time);
     broadcastState(currentVideo, state, time);
@@ -2013,7 +2018,12 @@ function Room(props) {
   function handlePlayerSeek(time) {
     console.log('Player seeked to:', time);
     lastSyncedTime.current = time;
-    lastLocalChange.current = Date.now();
+    
+    // Only mark as local change if not during initial sync
+    if (!isInitialSync.current) {
+      lastLocalChange.current = Date.now();
+    }
+    
     setPlaybackTime(time);
     broadcastState(currentVideo, playbackState, time);
   }
