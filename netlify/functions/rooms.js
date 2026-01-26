@@ -336,27 +336,53 @@ export const handler = async (event) => {
         return { statusCode: 404, headers, body: JSON.stringify({ error: 'Room not found' }) };
       }
 
-      // Get playlists with videos
-      const playlists = await sql`
-        SELECT p.id, p.name, p.position, p.created_at,
-               COALESCE(
-                 json_agg(
-                   json_build_object(
-                     'id', v.id,
-                     'title', v.title,
-                     'url', v.url,
-                     'videoType', v.video_type,
-                     'position', v.position
-                   ) ORDER BY v.position
-                 ) FILTER (WHERE v.id IS NOT NULL),
-                 '[]'
-               ) as videos
-        FROM playlists p
-        LEFT JOIN videos v ON v.playlist_id = p.id
-        WHERE p.room_id = ${roomId}::uuid
-        GROUP BY p.id
-        ORDER BY p.position, p.created_at
-      `;
+      const isOwner = user && user.id === room.owner_id;
+
+      // Get playlists with videos (filter hidden for non-owners)
+      let playlists;
+      if (isOwner) {
+        playlists = await sql`
+          SELECT p.id, p.name, p.position, p.created_at, COALESCE(p.hidden, false) as hidden,
+                 COALESCE(
+                   json_agg(
+                     json_build_object(
+                       'id', v.id,
+                       'title', v.title,
+                       'url', v.url,
+                       'videoType', v.video_type,
+                       'position', v.position
+                     ) ORDER BY v.position
+                   ) FILTER (WHERE v.id IS NOT NULL),
+                   '[]'
+                 ) as videos
+          FROM playlists p
+          LEFT JOIN videos v ON v.playlist_id = p.id
+          WHERE p.room_id = ${roomId}::uuid
+          GROUP BY p.id
+          ORDER BY p.position, p.created_at
+        `;
+      } else {
+        playlists = await sql`
+          SELECT p.id, p.name, p.position, p.created_at, COALESCE(p.hidden, false) as hidden,
+                 COALESCE(
+                   json_agg(
+                     json_build_object(
+                       'id', v.id,
+                       'title', v.title,
+                       'url', v.url,
+                       'videoType', v.video_type,
+                       'position', v.position
+                     ) ORDER BY v.position
+                   ) FILTER (WHERE v.id IS NOT NULL),
+                   '[]'
+                 ) as videos
+          FROM playlists p
+          LEFT JOIN videos v ON v.playlist_id = p.id
+          WHERE p.room_id = ${roomId}::uuid AND (p.hidden IS NULL OR p.hidden = false)
+          GROUP BY p.id
+          ORDER BY p.position, p.created_at
+        `;
+      }
 
       // Get members with computed status
       // Users are "online" only if:
@@ -400,6 +426,7 @@ export const handler = async (event) => {
             playbackTime: currentPlaybackTime
           },
           playlists,
+          isPlaylistOwner: isOwner,
           members: members.map(m => ({
             visitorId: m.user_id || m.guest_id,
             visitorUserId: m.user_id,
