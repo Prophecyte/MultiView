@@ -66,6 +66,41 @@ export const handler = async (event) => {
       };
     }
 
+    // GET /rooms/visited - List rooms user has visited (but doesn't own)
+    if (event.httpMethod === 'GET' && path === '/visited') {
+      if (!user) {
+        return { statusCode: 401, headers, body: JSON.stringify({ error: 'Unauthorized' }) };
+      }
+
+      const visitedRooms = await sql`
+        SELECT DISTINCT r.id, r.name, r.owner_id, u.display_name as owner_name,
+               rv.last_seen as last_visited,
+               (SELECT COUNT(*) FROM room_visitors WHERE room_id = r.id AND status = 'online') as online_count
+        FROM room_visitors rv
+        JOIN rooms r ON rv.room_id = r.id
+        JOIN users u ON r.owner_id = u.id
+        WHERE rv.user_id = ${user.id}
+          AND r.owner_id != ${user.id}
+        ORDER BY rv.last_seen DESC
+        LIMIT 20
+      `;
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ 
+          rooms: visitedRooms.map(r => ({
+            id: r.id,
+            name: r.name,
+            ownerId: r.owner_id,
+            ownerName: r.owner_name,
+            lastVisited: r.last_visited,
+            onlineCount: r.online_count
+          }))
+        })
+      };
+    }
+
     // POST /rooms - Create room
     if (event.httpMethod === 'POST' && path === '') {
       if (!user) {
