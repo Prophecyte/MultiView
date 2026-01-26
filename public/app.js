@@ -254,7 +254,10 @@ function Icon(props) {
     home: React.createElement(React.Fragment, null, React.createElement('path', { d: 'M3,9l9-7,9,7v11a2,2,0,0,1-2,2H5a2,2,0,0,1-2-2Z' }), React.createElement('polyline', { points: '9,22 9,12 15,12 15,22' })),
     enter: React.createElement(React.Fragment, null, React.createElement('path', { d: 'M15,3h4a2,2,0,0,1,2,2v14a2,2,0,0,1-2,2h-4' }), React.createElement('polyline', { points: '10,17 15,12 10,7' }), React.createElement('line', { x1: '15', y1: '12', x2: '3', y2: '12' })),
     chevronDown: React.createElement('polyline', { points: '6,9 12,15 18,9' }),
-    grip: React.createElement(React.Fragment, null, React.createElement('circle', { cx: '9', cy: '5', r: '1.5' }), React.createElement('circle', { cx: '9', cy: '12', r: '1.5' }), React.createElement('circle', { cx: '9', cy: '19', r: '1.5' }), React.createElement('circle', { cx: '15', cy: '5', r: '1.5' }), React.createElement('circle', { cx: '15', cy: '12', r: '1.5' }), React.createElement('circle', { cx: '15', cy: '19', r: '1.5' }))
+    grip: React.createElement(React.Fragment, null, React.createElement('circle', { cx: '9', cy: '5', r: '1.5' }), React.createElement('circle', { cx: '9', cy: '12', r: '1.5' }), React.createElement('circle', { cx: '9', cy: '19', r: '1.5' }), React.createElement('circle', { cx: '15', cy: '5', r: '1.5' }), React.createElement('circle', { cx: '15', cy: '12', r: '1.5' }), React.createElement('circle', { cx: '15', cy: '19', r: '1.5' })),
+    shuffle: React.createElement(React.Fragment, null, React.createElement('polyline', { points: '16,3 21,3 21,8' }), React.createElement('line', { x1: '4', y1: '20', x2: '21', y2: '3' }), React.createElement('polyline', { points: '21,16 21,21 16,21' }), React.createElement('line', { x1: '15', y1: '15', x2: '21', y2: '21' }), React.createElement('line', { x1: '4', y1: '4', x2: '9', y2: '9' })),
+    loop: React.createElement(React.Fragment, null, React.createElement('polyline', { points: '17,1 21,5 17,9' }), React.createElement('path', { d: 'M3,11V9a4,4,0,0,1,4-4h14' }), React.createElement('polyline', { points: '7,23 3,19 7,15' }), React.createElement('path', { d: 'M21,13v2a4,4,0,0,1-4,4H3' })),
+    autoplay: React.createElement(React.Fragment, null, React.createElement('polygon', { points: '5,3 19,12 5,21' }), React.createElement('line', { x1: '19', y1: '5', x2: '19', y2: '19' }))
   };
   return React.createElement('svg', { width: s, height: s, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round' }, paths[name] || null);
 }
@@ -279,6 +282,7 @@ function YouTubePlayer(props) {
   var playbackTime = props.playbackTime;
   var onStateChange = props.onStateChange;
   var onSeek = props.onSeek;
+  var onEnded = props.onEnded;
   
   var containerRef = useRef(null);
   var playerRef = useRef(null);
@@ -388,7 +392,10 @@ function YouTubePlayer(props) {
             if (Date.now() - lastCommandTime.current < 300) return;
             
             // YT states: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering
-            if (event.data === 1 && onStateChange) {
+            if (event.data === 0 && onEnded) {
+              console.log('YT: Video ended');
+              onEnded();
+            } else if (event.data === 1 && onStateChange) {
               var time = playerRef.current.getCurrentTime();
               console.log('YT: User played at', time.toFixed(1));
               lastKnownTime.current = time;
@@ -565,7 +572,8 @@ function VideoPlayer(props) {
         playbackState: playbackState,
         playbackTime: playbackTime,
         onStateChange: onStateChange,
-        onSeek: onSeek
+        onSeek: onSeek,
+        onEnded: onEnded
       })
     );
   }
@@ -1061,7 +1069,7 @@ function PlaylistPanel(props) {
               isEditing 
                 ? React.createElement('input', { className: 'playlist-edit-input', value: editName, onChange: function(e) { setEditName(e.target.value); }, onBlur: function() { handleRename(p.id); }, onKeyDown: function(e) { if (e.key === 'Enter') handleRename(p.id); if (e.key === 'Escape') { setEditingId(null); setEditName(''); } }, autoFocus: true })
                 : React.createElement('button', { className: 'playlist-select', onClick: function() { onSelect(p); } },
-                    React.createElement('span', { className: 'playlist-name' }, p.name),
+                    React.createElement('span', { className: 'playlist-name', title: p.name }, p.name),
                     React.createElement('span', { className: 'playlist-count' }, (p.videos || []).length)
                   ),
               React.createElement('div', { className: 'playlist-actions' },
@@ -1783,6 +1791,18 @@ function Room(props) {
   var notification = _notification[0];
   var setNotification = _notification[1];
   
+  var _autoplay = useState(true);
+  var autoplay = _autoplay[0];
+  var setAutoplay = _autoplay[1];
+  
+  var _shuffle = useState(false);
+  var shuffle = _shuffle[0];
+  var setShuffle = _shuffle[1];
+  
+  var _loop = useState(false);
+  var loop = _loop[0];
+  var setLoop = _loop[1];
+  
   var _connectedUsers = useState([]);
   var connectedUsers = _connectedUsers[0];
   var setConnectedUsers = _connectedUsers[1];
@@ -2087,6 +2107,36 @@ function Room(props) {
     playVideo(video, currentIndex - 1);
   }
 
+  function handleVideoEnded() {
+    // Loop: replay current video
+    if (loop) {
+      setPlaybackTime(0);
+      setPlaybackState('playing');
+      broadcastState(currentVideo, 'playing', 0);
+      return;
+    }
+    
+    if (!activePlaylist) return;
+    var videos = activePlaylist.videos || [];
+    if (videos.length === 0) return;
+    
+    // Shuffle: play random video (with autoplay enabled)
+    if (shuffle) {
+      var randomIndex = Math.floor(Math.random() * videos.length);
+      // Avoid playing same video if possible
+      if (videos.length > 1 && randomIndex === currentIndex) {
+        randomIndex = (randomIndex + 1) % videos.length;
+      }
+      playVideo(videos[randomIndex], randomIndex);
+      return;
+    }
+    
+    // Autoplay: play next video
+    if (autoplay && currentIndex < videos.length - 1) {
+      playVideo(videos[currentIndex + 1], currentIndex + 1);
+    }
+  }
+
   function playNext() {
     if (!activePlaylist) return;
     var videos = activePlaylist.videos || [];
@@ -2258,11 +2308,28 @@ function Room(props) {
             playbackTime: playbackTime, 
             onStateChange: handlePlayerStateChange,
             onSeek: handlePlayerSeek,
-            onEnded: playNext,
+            onEnded: handleVideoEnded,
             isLocalChange: (Date.now() - lastLocalChange.current) < 2000
           }),
           React.createElement('div', { className: 'playback-controls' },
             React.createElement('button', { className: 'btn sm', onClick: playPrev, disabled: !activePlaylist || currentIndex <= 0 }, React.createElement(Icon, { name: 'prev', size: 'sm' }), ' Prev'),
+            React.createElement('div', { className: 'playback-toggles' },
+              React.createElement('button', { 
+                className: 'icon-btn toggle' + (shuffle ? ' active' : ''), 
+                onClick: function() { setShuffle(!shuffle); if (!shuffle) setAutoplay(true); },
+                title: 'Shuffle' + (shuffle ? ' (On)' : ' (Off)')
+              }, React.createElement(Icon, { name: 'shuffle', size: 'sm' })),
+              React.createElement('button', { 
+                className: 'icon-btn toggle' + (loop ? ' active' : ''), 
+                onClick: function() { setLoop(!loop); },
+                title: 'Loop' + (loop ? ' (On)' : ' (Off)')
+              }, React.createElement(Icon, { name: 'loop', size: 'sm' })),
+              React.createElement('button', { 
+                className: 'icon-btn toggle' + (autoplay ? ' active' : ''), 
+                onClick: function() { setAutoplay(!autoplay); },
+                title: 'Autoplay' + (autoplay ? ' (On)' : ' (Off)')
+              }, React.createElement(Icon, { name: 'autoplay', size: 'sm' }))
+            ),
             React.createElement('div', { className: 'now-playing' },
               currentVideo 
                 ? React.createElement(React.Fragment, null, 
