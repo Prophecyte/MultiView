@@ -75,7 +75,7 @@ export const handler = async (event) => {
       const visitedRooms = await sql`
         SELECT DISTINCT r.id, r.name, r.owner_id, u.display_name as owner_name,
                rv.last_seen as last_visited,
-               (SELECT COUNT(*) FROM room_visitors WHERE room_id = r.id AND last_seen > NOW() - INTERVAL '10 seconds') as online_count
+               (SELECT COUNT(*) FROM room_visitors WHERE room_id = r.id AND status = 'online' AND last_seen > NOW() - INTERVAL '10 seconds') as online_count
         FROM room_visitors rv
         JOIN rooms r ON rv.room_id = r.id
         JOIN users u ON r.owner_id = u.id
@@ -359,13 +359,15 @@ export const handler = async (event) => {
       `;
 
       // Get members with computed status
-      // Users are "online" if they sent a heartbeat in the last 10 seconds
-      // Otherwise they are "offline" (including if they are in a different room)
+      // Users are "online" only if:
+      // 1. Their status is 'online' (set by join, cleared by leave)
+      // 2. AND they sent a heartbeat in the last 10 seconds
+      // This ensures users in different rooms show as offline
       const members = await sql`
         SELECT rv.user_id, rv.guest_id, rv.display_name, rv.color, rv.status, rv.last_seen,
                CASE WHEN rv.user_id = ${room.owner_id} THEN true ELSE false END as is_owner,
                CASE 
-                 WHEN rv.last_seen > NOW() - INTERVAL '10 seconds' THEN 'online'
+                 WHEN rv.status = 'online' AND rv.last_seen > NOW() - INTERVAL '10 seconds' THEN 'online'
                  ELSE 'offline'
                END as computed_status
         FROM room_visitors rv
