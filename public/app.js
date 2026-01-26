@@ -581,9 +581,10 @@ function VideoPlayer(props) {
   }
   
   if (parsed.type === 'direct') {
-    // Check if it is an audio file
-    var isAudio = video.url.match(/\.(mp3|wav|m4a|flac|aac|ogg)$/i) || 
-                  (video.title && video.title.match(/\.(mp3|wav|m4a|flac|aac)$/i));
+    // Check if it is an audio file - use isAudio flag, URL extension, or title extension
+    var isAudio = video.isAudio || 
+                  video.url.match(/\.(mp3|wav|m4a|flac|aac|ogg)$/i) || 
+                  (video.title && video.title.match(/\.(mp3|wav|m4a|flac|aac|ogg)$/i));
     
     if (isAudio) {
       return React.createElement('div', { className: 'video-placeholder' },
@@ -2218,8 +2219,16 @@ function Room(props) {
     
     files.forEach(function(file, index) {
       var url = URL.createObjectURL(file);
-      var title = file.name.replace(/\.[^/.]+$/, '');
-      var video = { id: 'local_' + Date.now() + '_' + index, title: title, url: url, isLocal: true };
+      // Keep full filename for display and audio detection
+      var title = file.name;
+      var isAudio = file.type.startsWith('audio/') || file.name.match(/\.(mp3|wav|m4a|flac|aac|ogg)$/i);
+      var video = { 
+        id: 'local_' + Date.now() + '_' + index, 
+        title: title, 
+        url: url, 
+        isLocal: true,
+        isAudio: isAudio
+      };
       
       // Play the first file immediately
       if (index === 0) {
