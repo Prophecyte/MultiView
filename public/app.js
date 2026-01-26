@@ -321,6 +321,7 @@ function YouTubePlayer(props) {
   var lastCommandTime = useRef(0);
   var lastKnownTime = useRef(0);
   var seekCheckInterval = useRef(null);
+  var backgroundCheckTimer = useRef(null);
   var lastReportedSeek = useRef(0);
   var handledEnded = useRef(false); // Track if we've handled the ended event for current video
   
@@ -366,6 +367,9 @@ function YouTubePlayer(props) {
 
   // Create player when API is ready
   useEffect(function() {
+    // Reset ended flag for new video
+    handledEnded.current = false;
+    
     function initPlayer() {
       if (!containerRef.current || playerRef.current) return;
       
@@ -430,11 +434,17 @@ function YouTubePlayer(props) {
               }
             }, 500);
             
-            // Monitor for seeks and video end - check frequently for instant response
-            // This also serves as backup for background tabs where events may not fire
-            seekCheckInterval.current = setInterval(function() {
-              if (!playerRef.current || !isReady.current) return;
-              if (Date.now() - lastCommandTime.current < 300) return;
+            // Monitor for seeks and video end
+            // Using setTimeout chain for better background tab support
+            function checkPlayerState() {
+              if (!playerRef.current || !isReady.current) {
+                seekCheckInterval.current = setTimeout(checkPlayerState, 200);
+                return;
+              }
+              if (Date.now() - lastCommandTime.current < 300) {
+                seekCheckInterval.current = setTimeout(checkPlayerState, 200);
+                return;
+              }
               
               try {
                 var currentTime = playerRef.current.getCurrentTime();
@@ -442,34 +452,29 @@ function YouTubePlayer(props) {
                 var expectedTime = lastKnownTime.current;
                 var playerState = playerRef.current.getPlayerState();
                 
-                // Check for video ended - multiple detection methods for reliability
-                // Method 1: State is 0 (ended)
-                // Method 2: Current time is at or past duration (for background tabs where state event missed)
-                // Method 3: State is paused/unstarted and we're at the end (YouTube sometimes goes to state 2 or -1 at end)
+                // Check for video ended - multiple detection methods
                 var isStateEnded = playerState === 0;
                 var isAtEnd = duration > 0 && currentTime > 0 && currentTime >= (duration - 0.5);
                 var isPausedAtEnd = (playerState === 2 || playerState === -1) && isAtEnd;
                 
                 if ((isStateEnded || isPausedAtEnd) && onEndedRef.current && !handledEnded.current) {
-                  console.log('YT: Video ended (interval check - state:', playerState, 'time:', currentTime.toFixed(1), '/', duration.toFixed(1), ')');
+                  console.log('YT: Video ended (check - state:', playerState, 'time:', currentTime.toFixed(1), '/', duration.toFixed(1), ')');
                   handledEnded.current = true;
                   onEndedRef.current();
                   return;
                 }
                 
-                // Reset handledEnded flag only when video is clearly playing and not near the end
+                // Reset handledEnded flag when video is playing and not near end
                 if (playerState === 1 && duration > 0 && (duration - currentTime) > 3) {
                   handledEnded.current = false;
                 }
                 
-                // Account for normal playback (if playing, time advances ~0.15s per check)
-                if (playerState === 1) { // Playing
-                  expectedTime += 0.2; // Expected advance per 150ms check
+                if (playerState === 1) {
+                  expectedTime += 0.25;
                 }
                 
                 var timeDiff = Math.abs(currentTime - expectedTime);
                 
-                // If time jumped more than 1.5 seconds, user seeked
                 if (timeDiff > 1 && Math.abs(currentTime - lastReportedSeek.current) > 1) {
                   console.log('YT: User seeked to', currentTime.toFixed(1));
                   lastReportedSeek.current = currentTime;
@@ -479,7 +484,36 @@ function YouTubePlayer(props) {
                 }
                 lastKnownTime.current = currentTime;
               } catch (e) {}
-            }, 150); // Check every 150ms for instant seek detection
+              
+              seekCheckInterval.current = setTimeout(checkPlayerState, 200);
+            }
+            
+            seekCheckInterval.current = setTimeout(checkPlayerState, 200);
+            
+            // MessageChannel-based check (not throttled in background tabs)
+            var mc = new MessageChannel();
+            var mcActive = true;
+            backgroundCheckTimer.current = { stop: function() { mcActive = false; } };
+            
+            mc.port2.onmessage = function() {
+              if (!mcActive || !playerRef.current || !isReady.current) return;
+              try {
+                var ps = playerRef.current.getPlayerState();
+                var ct = playerRef.current.getCurrentTime();
+                var dur = playerRef.current.getDuration();
+                var atEnd = dur > 0 && ct > 0 && ct >= (dur - 0.5);
+                var ended = ps === 0 || ((ps === 2 || ps === -1) && atEnd);
+                
+                if (ended && onEndedRef.current && !handledEnded.current) {
+                  console.log('YT: Video ended (mc check)');
+                  handledEnded.current = true;
+                  onEndedRef.current();
+                  return;
+                }
+              } catch (e) {}
+              if (mcActive) setTimeout(function() { mc.port1.postMessage(null); }, 500);
+            };
+            setTimeout(function() { mc.port1.postMessage(null); }, 500);
           },
           onStateChange: function(event) {
             // Ignore events triggered by our commands
@@ -516,7 +550,10 @@ function YouTubePlayer(props) {
 
     return function() {
       if (seekCheckInterval.current) {
-        clearInterval(seekCheckInterval.current);
+        clearTimeout(seekCheckInterval.current);
+      }
+      if (backgroundCheckTimer.current && backgroundCheckTimer.current.stop) {
+        backgroundCheckTimer.current.stop();
       }
       if (playerRef.current && playerRef.current.destroy) {
         playerRef.current.destroy();
