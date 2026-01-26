@@ -1803,6 +1803,16 @@ function Room(props) {
   var loop = _loop[0];
   var setLoop = _loop[1];
   
+  // Refs to track latest toggle values for use in callbacks
+  var autoplayRef = useRef(autoplay);
+  var shuffleRef = useRef(shuffle);
+  var loopRef = useRef(loop);
+  
+  // Keep refs updated when state changes
+  useEffect(function() { autoplayRef.current = autoplay; }, [autoplay]);
+  useEffect(function() { shuffleRef.current = shuffle; }, [shuffle]);
+  useEffect(function() { loopRef.current = loop; }, [loop]);
+  
   var _connectedUsers = useState([]);
   var connectedUsers = _connectedUsers[0];
   var setConnectedUsers = _connectedUsers[1];
@@ -2108,8 +2118,15 @@ function Room(props) {
   }
 
   function handleVideoEnded() {
+    // Use refs to get current toggle values (avoid stale closures)
+    var isLoop = loopRef.current;
+    var isShuffle = shuffleRef.current;
+    var isAutoplay = autoplayRef.current;
+    
+    console.log('Video ended - loop:', isLoop, 'shuffle:', isShuffle, 'autoplay:', isAutoplay);
+    
     // Loop: replay current video
-    if (loop) {
+    if (isLoop) {
       setPlaybackTime(0);
       setPlaybackState('playing');
       broadcastState(currentVideo, 'playing', 0);
@@ -2120,19 +2137,28 @@ function Room(props) {
     var videos = activePlaylist.videos || [];
     if (videos.length === 0) return;
     
-    // Shuffle: play random video (with autoplay enabled)
-    if (shuffle) {
-      var randomIndex = Math.floor(Math.random() * videos.length);
-      // Avoid playing same video if possible
-      if (videos.length > 1 && randomIndex === currentIndex) {
-        randomIndex = (randomIndex + 1) % videos.length;
+    // Shuffle: play random video from playlist
+    if (isShuffle) {
+      // Get a truly random index different from current
+      var availableIndices = [];
+      for (var i = 0; i < videos.length; i++) {
+        if (i !== currentIndex) availableIndices.push(i);
       }
-      playVideo(videos[randomIndex], randomIndex);
+      
+      if (availableIndices.length > 0) {
+        var randomIdx = availableIndices[Math.floor(Math.random() * availableIndices.length)];
+        playVideo(videos[randomIdx], randomIdx);
+      } else if (videos.length === 1) {
+        // Only one video, replay it
+        setPlaybackTime(0);
+        setPlaybackState('playing');
+        broadcastState(currentVideo, 'playing', 0);
+      }
       return;
     }
     
-    // Autoplay: play next video
-    if (autoplay && currentIndex < videos.length - 1) {
+    // Autoplay: play next video in order
+    if (isAutoplay && currentIndex < videos.length - 1) {
       playVideo(videos[currentIndex + 1], currentIndex + 1);
     }
   }
