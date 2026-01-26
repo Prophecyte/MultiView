@@ -218,7 +218,12 @@ export const handler = async (event) => {
         return { statusCode: 400, headers, body: JSON.stringify({ error: 'Display name is required' }) };
       }
 
+      // Update user's display name
       await sql`UPDATE users SET display_name = ${displayName.trim()} WHERE id = ${user.id}`;
+      
+      // Also update display name in all room_visitors entries for this user
+      await sql`UPDATE room_visitors SET display_name = ${displayName.trim()} WHERE user_id = ${user.id}`;
+      
       return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
     }
 
