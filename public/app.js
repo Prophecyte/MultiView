@@ -287,6 +287,19 @@ function YouTubePlayer(props) {
   var lastKnownTime = useRef(0);
   var seekCheckInterval = useRef(null);
   var lastReportedSeek = useRef(0);
+  
+  // Use refs to track latest props for use in callbacks
+  var latestStateRef = useRef(playbackState);
+  var latestTimeRef = useRef(playbackTime);
+  
+  // Keep refs updated
+  useEffect(function() {
+    latestStateRef.current = playbackState;
+  }, [playbackState]);
+  
+  useEffect(function() {
+    latestTimeRef.current = playbackTime;
+  }, [playbackTime]);
 
   // Load YouTube API once
   useEffect(function() {
@@ -305,30 +318,39 @@ function YouTubePlayer(props) {
     function initPlayer() {
       if (!containerRef.current || playerRef.current) return;
       
+      // Use refs to get latest values (props might be stale in closure)
+      var currentState = latestStateRef.current;
+      var currentTime = latestTimeRef.current || 0;
+      
       playerRef.current = new window.YT.Player(containerRef.current, {
         videoId: videoId,
         playerVars: {
-          autoplay: playbackState === 'playing' ? 1 : 0,
+          autoplay: currentState === 'playing' ? 1 : 0,
           rel: 0,
           modestbranding: 1,
-          start: Math.floor(playbackTime || 0),
+          start: Math.floor(currentTime),
           playsinline: 1,
           enablejsapi: 1
         },
         events: {
           onReady: function() {
-            console.log('YT Player ready, initial time:', (playbackTime || 0).toFixed(1), 'state:', playbackState);
+            // Use refs for latest values at time of ready
+            var latestState = latestStateRef.current;
+            var latestTime = latestTimeRef.current || 0;
+            
+            console.log('YT Player ready, time:', latestTime.toFixed(1), 'state:', latestState);
             isReady.current = true;
-            lastKnownTime.current = playbackTime || 0;
+            lastKnownTime.current = latestTime;
             
             // Seek to the exact time (start param only handles whole seconds)
-            if (playbackTime && playbackTime > 1) {
-              console.log('>>> Initial seek to:', playbackTime.toFixed(1));
-              playerRef.current.seekTo(playbackTime, true);
+            if (latestTime > 1) {
+              console.log('>>> Initial seek to:', latestTime.toFixed(1));
+              playerRef.current.seekTo(latestTime, true);
             }
             
             // Apply correct playback state
-            if (playbackState === 'playing') {
+            if (latestState === 'playing') {
+              console.log('>>> Starting playback');
               playerRef.current.playVideo();
             }
             
@@ -1780,6 +1802,7 @@ function Room(props) {
   var isInitialSync = useRef(true); // Prevent broadcasting during initial join
   var hasConfirmedJoin = useRef(false); // Only check kicks after confirmed in room
   var joinTime = useRef(Date.now()); // Track when we joined
+  var hasInitialVideoSync = useRef(false); // Ensure first video sync always applies
 
   function syncRoomState() {
     api.rooms.getSync(room.id).then(function(data) {
@@ -1828,8 +1851,9 @@ function Room(props) {
       }
       
       // Skip sync if we made a local change recently
+      // BUT always allow the first video sync to happen
       var timeSinceLocalChange = Date.now() - (lastLocalChange.current || 0);
-      if (timeSinceLocalChange < 2000) {
+      if (timeSinceLocalChange < 2000 && hasInitialVideoSync.current) {
         return;
       }
       
@@ -1887,6 +1911,8 @@ function Room(props) {
             setPlaybackTime(0);
           }
         }
+        // Mark that we have done at least one video sync
+        hasInitialVideoSync.current = true;
       }
     }).catch(function(err) {
       console.error('Sync error:', err);
@@ -1897,6 +1923,7 @@ function Room(props) {
     console.log('Joining room and starting sync...');
     isInitialSync.current = true; // Reset on join
     hasConfirmedJoin.current = false; // Reset join confirmation
+    hasInitialVideoSync.current = false; // Reset video sync flag
     joinTime.current = Date.now(); // Track join time
     
     // Check if this is a returning guest
@@ -1924,11 +1951,19 @@ function Room(props) {
       }, 3000);
     }).catch(console.error);
     
-    // Regular sync interval
+    // Regular sync interval for video state
     syncInterval.current = setInterval(function() {
-      api.presence.heartbeat(room.id, 'online').catch(console.error);
       syncRoomState();
     }, SYNC_INTERVAL);
+    
+    // Dedicated heartbeat interval (3 seconds) - survives browser throttling better
+    // This ensures users stay "online" even when tab is in background
+    var heartbeatInterval = setInterval(function() {
+      api.presence.heartbeat(room.id, 'online').catch(console.error);
+    }, 3000);
+    
+    // Also send immediate heartbeat
+    api.presence.heartbeat(room.id, 'online').catch(console.error);
     
     // Handle visibility changes - sync when tab becomes visible
     function handleVisibilityChange() {
@@ -1939,26 +1974,15 @@ function Room(props) {
       }
     }
     
-    // Throttled heartbeat for user activity
-    var lastActivityHeartbeat = 0;
-    function throttledHeartbeat() {
-      var now = Date.now();
-      if (now - lastActivityHeartbeat > 10000) {
-        lastActivityHeartbeat = now;
-        api.presence.heartbeat(room.id, 'online').catch(console.error);
-      }
-    }
-    
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('focus', function() {
       api.presence.heartbeat(room.id, 'online').catch(console.error);
       syncRoomState();
     });
-    window.addEventListener('mousemove', throttledHeartbeat);
-    window.addEventListener('keydown', throttledHeartbeat);
     
     return function() {
       clearInterval(syncInterval.current);
+      clearInterval(heartbeatInterval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       api.presence.leave(room.id).catch(console.error);
     };
