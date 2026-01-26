@@ -2231,3 +2231,54 @@ body {
   font-size: 13px;
   font-family: var(--font-main);
 }
+
+/* ============================================
+   Visited Rooms Section
+   ============================================ */
+.visited-rooms-section {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+
+.visited-rooms-section .rooms-header h2 {
+  color: var(--text-secondary);
+  font-size: 1.1rem;
+}
+
+.visited-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.visited-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.room-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.room-owner {
+  color: var(--text-secondary);
+}
+
+.online-badge {
+  background: rgba(46, 204, 113, 0.2);
+  color: #2ecc71;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.last-visited {
+  color: var(--text-muted);
+  font-style: italic;
+}
