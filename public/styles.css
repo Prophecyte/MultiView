@@ -924,6 +924,7 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 120px;
 }
 
 .playlist-count {
@@ -1215,6 +1216,26 @@ body {
   gap: 12px;
   padding: 10px 0;
   flex-shrink: 0;
+}
+
+.playback-toggles {
+  display: flex;
+  gap: 4px;
+}
+
+.playback-toggles .icon-btn.toggle {
+  opacity: 0.5;
+  transition: all var(--transition-fast);
+}
+
+.playback-toggles .icon-btn.toggle:hover {
+  opacity: 0.8;
+}
+
+.playback-toggles .icon-btn.toggle.active {
+  opacity: 1;
+  color: var(--gold);
+  background: rgba(212, 168, 36, 0.15);
 }
 
 .now-playing {
