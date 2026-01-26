@@ -101,6 +101,27 @@ export const handler = async (event) => {
       };
     }
 
+    // DELETE /rooms/visited/:roomId - Remove room from visited history
+    const visitedDeleteMatch = path.match(/^\/visited\/([^\/]+)$/);
+    if (event.httpMethod === 'DELETE' && visitedDeleteMatch) {
+      if (!user) {
+        return { statusCode: 401, headers, body: JSON.stringify({ error: 'Unauthorized' }) };
+      }
+
+      const roomId = visitedDeleteMatch[1];
+      
+      await sql`
+        DELETE FROM room_visitors 
+        WHERE room_id = ${roomId}::uuid AND user_id = ${user.id}
+      `;
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ success: true })
+      };
+    }
+
     // POST /rooms - Create room
     if (event.httpMethod === 'POST' && path === '') {
       if (!user) {
