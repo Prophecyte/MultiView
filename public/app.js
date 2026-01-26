@@ -1787,7 +1787,6 @@ function Room(props) {
   var connectedUsers = _connectedUsers[0];
   var setConnectedUsers = _connectedUsers[1];
   
-  var fileInputRef = useRef(null);
   var syncInterval = useRef(null);
   var lastLocalChange = useRef(0);
   var pendingBroadcast = useRef(null); // Queue broadcast during initial sync
@@ -2213,38 +2212,8 @@ function Room(props) {
     });
   }
 
-  function handleFileUpload(e) {
-    var files = Array.from(e.target.files);
-    if (files.length === 0) return;
-    
-    files.forEach(function(file, index) {
-      var url = URL.createObjectURL(file);
-      // Keep full filename for display and audio detection
-      var title = file.name;
-      var isAudio = file.type.startsWith('audio/') || file.name.match(/\.(mp3|wav|m4a|flac|aac|ogg)$/i);
-      var video = { 
-        id: 'local_' + Date.now() + '_' + index, 
-        title: title, 
-        url: url, 
-        isLocal: true,
-        isAudio: isAudio
-      };
-      
-      // Play the first file immediately
-      if (index === 0) {
-        playVideo(video, -1);
-      }
-    });
-    
-    if (files.length > 0) {
-      showNotif('Playing local file (only visible to you)');
-    }
-    e.target.value = '';
-  }
-
   return React.createElement('div', { className: 'dashboard' },
     React.createElement(DragonFire, null),
-    React.createElement('input', { type: 'file', ref: fileInputRef, className: 'hidden', accept: 'video/*,audio/*', multiple: true, onChange: handleFileUpload }),
     
     React.createElement('header', { className: 'dashboard-header' },
       React.createElement('div', { className: 'header-left' },
@@ -2257,7 +2226,7 @@ function Room(props) {
           React.createElement('input', { value: urlInput, onChange: function(e) { setUrlInput(e.target.value); }, placeholder: 'Enter URL...', onKeyDown: function(e) { if (e.key === 'Enter') playNow(); } }),
           React.createElement('button', { className: 'icon-btn primary', onClick: playNow, title: 'Play Now' }, React.createElement(Icon, { name: 'play' })),
           React.createElement('button', { className: 'icon-btn', onClick: handleAddUrl, disabled: !activePlaylist, title: 'Add to Playlist' }, React.createElement(Icon, { name: 'plus' })),
-          React.createElement('button', { className: 'icon-btn', onClick: function() { fileInputRef.current && fileInputRef.current.click(); }, title: 'Upload' }, React.createElement(Icon, { name: 'upload' }))
+          React.createElement('button', { className: 'icon-btn', onClick: function() { showNotif('File upload coming soon!', 'info'); }, title: 'Upload (Coming Soon)' }, React.createElement(Icon, { name: 'upload' }))
         )
       ),
       React.createElement('div', { className: 'header-right' },
