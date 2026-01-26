@@ -225,6 +225,25 @@ function parseVideoUrl(url) {
   return null;
 }
 
+function getVideoThumbnail(url) {
+  if (!url) return null;
+  var parsed = parseVideoUrl(url);
+  if (!parsed) return null;
+  
+  if (parsed.type === 'youtube') {
+    return 'https://img.youtube.com/vi/' + parsed.id + '/default.jpg';
+  }
+  if (parsed.type === 'vimeo') {
+    // Vimeo requires API call, use placeholder
+    return null;
+  }
+  if (parsed.type === 'dailymotion') {
+    return 'https://www.dailymotion.com/thumbnail/video/' + parsed.id;
+  }
+  
+  return null;
+}
+
 function getVideoTypeIcon(type) {
   var icons = { youtube: '▶️', vimeo: '🎬', direct: '📹' };
   return icons[type] || '📹';
@@ -965,6 +984,7 @@ function DraggableVideoList(props) {
       var isDragOver = dragOver === i;
       var isEditing = editingId === v.id;
       var parsed = parseVideoUrl(v.url);
+      var thumbnail = getVideoThumbnail(v.url);
       
       return React.createElement('div', { 
         key: v.id, 
@@ -979,6 +999,9 @@ function DraggableVideoList(props) {
         React.createElement('div', { className: 'video-item-top' },
           React.createElement('div', { className: 'drag-handle' }, React.createElement(Icon, { name: 'grip', size: 'sm' })),
           React.createElement('span', { className: 'video-index' }, i + 1),
+          thumbnail 
+            ? React.createElement('img', { className: 'video-thumbnail', src: thumbnail, alt: '', onClick: function() { onPlay(v, i); } })
+            : React.createElement('div', { className: 'video-thumbnail placeholder', onClick: function() { onPlay(v, i); } }, React.createElement(Icon, { name: 'play', size: 'sm' })),
           isEditing 
             ? React.createElement('input', {
                 className: 'video-edit-input',
@@ -2292,7 +2315,11 @@ function Room(props) {
     
     setPlaybackState(state);
     setPlaybackTime(time);
-    broadcastState(currentVideo, state, time);
+    
+    // Do not broadcast during initial sync - prevents new users from affecting room state
+    if (!isInitialSync.current) {
+      broadcastState(currentVideo, state, time);
+    }
   }
 
   function handlePlayerSeek(time) {
@@ -2305,7 +2332,11 @@ function Room(props) {
     }
     
     setPlaybackTime(time);
-    broadcastState(currentVideo, playbackState, time);
+    
+    // Do not broadcast during initial sync
+    if (!isInitialSync.current) {
+      broadcastState(currentVideo, playbackState, time);
+    }
   }
 
   function playVideo(video, index) {
