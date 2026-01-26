@@ -118,6 +118,7 @@ api.auth = {
 api.rooms = {
   list: function() { return api.request('/rooms').then(function(d) { return d.rooms || []; }); },
   getVisited: function() { return api.request('/rooms/visited').then(function(d) { return d.rooms || []; }); },
+  removeVisited: function(roomId) { return api.request('/rooms/visited/' + roomId, { method: 'DELETE' }); },
   get: function(roomId) { return api.request('/rooms/' + roomId).then(function(d) { return d.room; }); },
   create: function(name) { return api.request('/rooms', { method: 'POST', body: JSON.stringify({ name: name }) }).then(function(d) { return d.room; }); },
   update: function(roomId, updates) { return api.request('/rooms/' + roomId, { method: 'PUT', body: JSON.stringify(updates) }).then(function(d) { return d.room; }); },
@@ -1595,6 +1596,15 @@ function HomePage(props) {
     props.onEnterRoom(room, room.ownerId);
   }
 
+  function removeVisitedRoom(roomId) {
+    api.rooms.removeVisited(roomId).then(function() {
+      setVisitedRooms(visitedRooms.filter(function(r) { return r.id !== roomId; }));
+      showNotif('Removed from history');
+    }).catch(function(err) {
+      showNotif('Failed to remove', 'error');
+    });
+  }
+
   function formatTimeAgo(dateStr) {
     if (!dateStr) return '';
     var date = new Date(dateStr);
@@ -1677,7 +1687,8 @@ function HomePage(props) {
                   React.createElement('span', { className: 'last-visited' }, formatTimeAgo(room.lastVisited))
                 ),
                 React.createElement('div', { className: 'room-card-actions' },
-                  React.createElement('button', { className: 'btn primary', onClick: function() { enterVisitedRoom(room); } }, React.createElement(Icon, { name: 'enter', size: 'sm' }), ' Join')
+                  React.createElement('button', { className: 'btn primary', onClick: function() { enterVisitedRoom(room); } }, React.createElement(Icon, { name: 'enter', size: 'sm' }), ' Join'),
+                  React.createElement('button', { className: 'icon-btn danger', onClick: function() { removeVisitedRoom(room.id); }, title: 'Remove from history' }, React.createElement(Icon, { name: 'x', size: 'sm' }))
                 )
               )
             );
