@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head><title>Sync Test</title></head>
+<body>
+<h1>API Sync Test</h1>
+<div id="output" style="white-space: pre; font-family: monospace;"></div>
+<script>
+var roomId = prompt('Enter room ID:');
+var output = document.getElementById('output');
+
+function log(msg) {
+  output.textContent += new Date().toISOString() + ' - ' + msg + '\n';
+}
+
+// Test GET sync
+fetch('/api/rooms/' + roomId + '/sync')
+  .then(r => r.json())
+  .then(data => {
+    log('GET /sync response:');
+    log(JSON.stringify(data.room, null, 2));
+  })
+  .catch(e => log('Error: ' + e));
+
+// Test PUT sync
+setTimeout(function() {
+  log('\nTesting PUT /sync...');
+  fetch('/api/rooms/' + roomId + '/sync', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      currentVideoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      currentVideoTitle: 'Test Video',
+      playbackState: 'playing',
+      playbackTime: 42.5
+    })
+  })
+  .then(r => r.json())
+  .then(data => {
+    log('PUT response: ' + JSON.stringify(data));
+    // Now GET again
+    return fetch('/api/rooms/' + roomId + '/sync');
+  })
+  .then(r => r.json())
+  .then(data => {
+    log('\nGET after PUT:');
+    log(JSON.stringify(data.room, null, 2));
+  })
+  .catch(e => log('Error: ' + e));
+}, 1000);
+</script>
+</body>
+</html>

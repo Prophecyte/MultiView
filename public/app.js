@@ -430,8 +430,12 @@ var globalPlaylist = {
   shuffle: false,
   loop: false,
   onVideoChange: null, // Callback to sync React state when tab becomes active
+  pendingVideo: null,  // Video that changed in background, waiting for tab visibility
+  pendingIndex: null,  // Index of pending video
   
   setPlaylist: function(videos, index) {
+    // Only update and log if values actually changed
+    if (this.videos === videos && this.currentIndex === index) return;
     this.videos = videos || [];
     this.currentIndex = index >= 0 ? index : -1;
     console.log('GlobalPlaylist: Set', this.videos.length, 'videos, index:', this.currentIndex);
@@ -543,6 +547,24 @@ var globalYTPlayer = {
       console.log('GlobalYT: Loading video:', videoId);
       this.lastLoadedId = videoId;
       this.player.loadVideoById(videoId, 0);
+      
+      // Ensure video plays - loadVideoById should autoplay but may not in background
+      var self = this;
+      setTimeout(function() {
+        if (self.player && self.isReady) {
+          try {
+            var state = self.player.getPlayerState();
+            console.log('GlobalYT: Post-load state check:', state);
+            if (state !== 1 && state !== 3) { // Not playing or buffering
+              console.log('GlobalYT: Forcing playVideo()');
+              self.player.playVideo();
+            }
+          } catch (e) {
+            console.log('GlobalYT: Post-load check error:', e);
+          }
+        }
+      }, 500);
+      
       return true;
     }
     return false;
@@ -932,6 +954,23 @@ function YouTubePlayer(props) {
     function handleVisibilityChange() {
       if (document.visibilityState === 'visible' && playerRef.current && isReady.current) {
         console.log('YT Visibility: Tab became visible, checking player state...');
+        
+        // If there's a pending video change, the video already changed in background
+        // Just ensure it's playing
+        if (globalPlaylist.pendingVideo) {
+          console.log('YT Visibility: Pending video change detected, ensuring playback');
+          try {
+            var state = playerRef.current.getPlayerState();
+            if (state !== 1 && state !== 3) { // Not playing or buffering
+              console.log('YT Visibility: Resuming playback...');
+              playerRef.current.playVideo();
+            }
+          } catch (e) {
+            console.error('YT Visibility resume error:', e);
+          }
+          return;
+        }
+        
         try {
           var playerState = playerRef.current.getPlayerState();
           var currentTime = playerRef.current.getCurrentTime();
@@ -1139,12 +1178,12 @@ function VideoPlayer(props) {
   }
 
   var parsed = parseVideoUrl(video.url);
-  console.log('VideoPlayer rendering:', video.url, 'parsed:', parsed);
+  // console.log('VideoPlayer rendering:', video.url, 'parsed:', parsed);
   
   if (!parsed) return React.createElement('div', { className: 'video-error' }, 'Invalid video URL');
 
   if (parsed.type === 'youtube') {
-    console.log('Rendering YouTube player for ID:', parsed.id);
+    // console.log('Rendering YouTube player for ID:', parsed.id);
     return React.createElement('div', { className: 'video-frame' },
       React.createElement(YouTubePlayer, {
         videoId: parsed.id,
@@ -2669,14 +2708,55 @@ function Room(props) {
   // Set up global callback to sync React state when video changes in background
   useEffect(function() {
     globalPlaylist.onVideoChange = function(video, index) {
-      console.log('GlobalPlaylist: Video changed in background, syncing React state');
-      setCurrentVideo(video);
-      setCurrentIndex(index);
-      setPlaybackState('playing');
-      setPlaybackTime(0);
-      // Broadcast to other users
-      broadcastState(video, 'playing', 0);
+      console.log('GlobalPlaylist: Video changed, tab visible:', document.visibilityState === 'visible');
+      
+      // Store pending change - DON'T sync React state immediately in background
+      // React state updates cause re-renders which recreate the YouTube player
+      globalPlaylist.pendingVideo = video;
+      globalPlaylist.pendingIndex = index;
+      
+      // Only sync React state if tab is visible
+      if (document.visibilityState === 'visible') {
+        console.log('GlobalPlaylist: Tab visible, syncing React state immediately');
+        setCurrentVideo(video);
+        setCurrentIndex(index);
+        setPlaybackState('playing');
+        setPlaybackTime(0);
+        broadcastState(video, 'playing', 0);
+        globalPlaylist.pendingVideo = null;
+        globalPlaylist.pendingIndex = null;
+      } else {
+        console.log('GlobalPlaylist: Tab hidden, deferring React state sync');
+        // Broadcast to other users even in background (for sync)
+        broadcastState(video, 'playing', 0);
+      }
     };
+    
+    // Sync pending changes when tab becomes visible
+    function syncPendingChanges() {
+      if (document.visibilityState === 'visible' && globalPlaylist.pendingVideo) {
+        console.log('GlobalPlaylist: Tab visible, syncing pending video change');
+        var video = globalPlaylist.pendingVideo;
+        var index = globalPlaylist.pendingIndex;
+        globalPlaylist.pendingVideo = null;
+        globalPlaylist.pendingIndex = null;
+        
+        setCurrentVideo(video);
+        setCurrentIndex(index);
+        setPlaybackState('playing');
+        // Don't set time to 0 - get current time from player
+        if (globalYTPlayer.player && globalYTPlayer.isReady) {
+          try {
+            var currentTime = globalYTPlayer.player.getCurrentTime();
+            setPlaybackTime(currentTime);
+          } catch (e) {
+            setPlaybackTime(0);
+          }
+        }
+      }
+    }
+    
+    document.addEventListener('visibilitychange', syncPendingChanges);
     
     globalYTPlayer.onVideoEndCallback = function() {
       if (handleVideoEndedRef.current) {
@@ -2685,7 +2765,10 @@ function Room(props) {
     };
     return function() {
       globalPlaylist.onVideoChange = null;
+      globalPlaylist.pendingVideo = null;
+      globalPlaylist.pendingIndex = null;
       globalYTPlayer.onVideoEndCallback = null;
+      document.removeEventListener('visibilitychange', syncPendingChanges);
     };
   }, []);
   
