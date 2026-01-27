@@ -309,82 +309,116 @@ function DragonFire() {
 // ============================================
 // Background-safe video end timer using Web Worker
 // Workers run independently and are not throttled in background tabs
-var videoEndTimer = (function() {
-  var worker = null;
-  var callback = null;
-  var expectedEndTime = null;
+// Video playback tracker - tracks when video should end and catches up on tab focus
+var videoPlaybackTracker = {
+  expectedEndTime: null,
+  callback: null,
+  isPlaying: false,
+  checkInterval: null,
+  videoDuration: 0,
   
-  // Create worker that tracks time independently
-  var workerCode = [
-    'var endTime = null;',
-    'var checkInterval = null;',
-    'onmessage = function(e) {',
-    '  if (e.data.action === "start") {',
-    '    endTime = e.data.endTime;',
-    '    if (checkInterval) clearInterval(checkInterval);',
-    '    checkInterval = setInterval(function() {',
-    '      if (endTime && Date.now() >= endTime) {',
-    '        postMessage("ended");',
-    '        clearInterval(checkInterval);',
-    '        checkInterval = null;',
-    '        endTime = null;',
-    '      }',
-    '    }, 200);',
-    '  } else if (e.data.action === "stop") {',
-    '    if (checkInterval) clearInterval(checkInterval);',
-    '    checkInterval = null;',
-    '    endTime = null;',
-    '  } else if (e.data.action === "update") {',
-    '    endTime = e.data.endTime;',
-    '  }',
-    '};'
-  ].join('\n');
+  start: function(durationSeconds, onEnded) {
+    this.stop(); // Clear any existing
+    this.expectedEndTime = Date.now() + (durationSeconds * 1000);
+    this.callback = onEnded;
+    this.isPlaying = true;
+    this.videoDuration = durationSeconds;
+    console.log('PlaybackTracker: Video will end in', durationSeconds.toFixed(1), 'seconds');
+    
+    // Also set up a regular check (will be throttled in background but works when active)
+    var self = this;
+    this.checkInterval = setInterval(function() {
+      self.checkEnded();
+    }, 500);
+  },
   
-  function init() {
-    if (worker) return;
-    try {
-      var blob = new Blob([workerCode], { type: 'application/javascript' });
-      worker = new Worker(URL.createObjectURL(blob));
-      worker.onmessage = function(e) {
-        if (e.data === 'ended' && callback) {
-          console.log('VideoEndTimer: Video ended (timer)');
-          callback();
-        }
-      };
-    } catch (err) {
-      console.error('Failed to create video end timer worker:', err);
+  stop: function() {
+    this.isPlaying = false;
+    this.expectedEndTime = null;
+    this.callback = null;
+    this.videoDuration = 0;
+    if (this.checkInterval) {
+      clearInterval(this.checkInterval);
+      this.checkInterval = null;
     }
+  },
+  
+  pause: function() {
+    this.isPlaying = false;
+    if (this.checkInterval) {
+      clearInterval(this.checkInterval);
+      this.checkInterval = null;
+    }
+  },
+  
+  resume: function(remainingSeconds, onEnded) {
+    this.expectedEndTime = Date.now() + (remainingSeconds * 1000);
+    this.callback = onEnded;
+    this.isPlaying = true;
+    
+    var self = this;
+    if (!this.checkInterval) {
+      this.checkInterval = setInterval(function() {
+        self.checkEnded();
+      }, 500);
+    }
+  },
+  
+  updateTime: function(currentTime, duration) {
+    if (duration > 0 && currentTime >= 0 && this.isPlaying) {
+      var remaining = duration - currentTime;
+      this.expectedEndTime = Date.now() + (remaining * 1000);
+      this.videoDuration = duration;
+    }
+  },
+  
+  checkEnded: function() {
+    if (this.expectedEndTime && this.isPlaying && Date.now() >= this.expectedEndTime) {
+      console.log('PlaybackTracker: Video ended (interval check)');
+      var cb = this.callback;
+      this.stop();
+      if (cb) cb();
+    }
+  },
+  
+  // Called when tab becomes visible - this is the key for background tab support
+  onVisible: function() {
+    console.log('PlaybackTracker: Tab visible, checking...', {
+      expectedEnd: this.expectedEndTime,
+      now: Date.now(),
+      isPlaying: this.isPlaying,
+      hasCallback: !!this.callback
+    });
+    
+    if (this.expectedEndTime && this.isPlaying && Date.now() >= this.expectedEndTime) {
+      console.log('PlaybackTracker: Video ended while in background, triggering callback!');
+      var cb = this.callback;
+      this.stop();
+      if (cb) {
+        // Use setTimeout with small delay to ensure browser has fully restored the tab
+        setTimeout(function() {
+          console.log('PlaybackTracker: Executing delayed callback now');
+          cb();
+        }, 100);
+      }
+      return true;
+    }
+    return false;
   }
-  
-  return {
-    start: function(durationSeconds, onEnded) {
-      init();
-      callback = onEnded;
-      expectedEndTime = Date.now() + (durationSeconds * 1000);
-      if (worker) {
-        worker.postMessage({ action: 'start', endTime: expectedEndTime });
-      }
-      console.log('VideoEndTimer: Started, will end in', durationSeconds.toFixed(1), 'seconds');
-    },
-    stop: function() {
-      callback = null;
-      expectedEndTime = null;
-      if (worker) {
-        worker.postMessage({ action: 'stop' });
-      }
-    },
-    updateTime: function(currentTime, duration) {
-      // Update expected end time if user seeks
-      if (duration > 0 && currentTime >= 0) {
-        var remaining = duration - currentTime;
-        expectedEndTime = Date.now() + (remaining * 1000);
-        if (worker) {
-          worker.postMessage({ action: 'update', endTime: expectedEndTime });
-        }
-      }
-    }
-  };
-})();
+};
+
+// Set up visibility change listener for catch-up
+document.addEventListener('visibilitychange', function() {
+  console.log('Visibility changed to:', document.visibilityState);
+  if (document.visibilityState === 'visible') {
+    videoPlaybackTracker.onVisible();
+  }
+});
+
+// Also check on window focus (some browsers use this instead)
+window.addEventListener('focus', function() {
+  videoPlaybackTracker.onVisible();
+});
 
 // Global reference to YouTube player for direct control (bypasses React state throttling in background tabs)
 var globalYTPlayer = {
@@ -416,7 +450,7 @@ var globalYTPlayer = {
             var currentTime = self.player.getCurrentTime();
             var remaining = duration - currentTime;
             console.log('Global: Starting timer, remaining:', remaining.toFixed(1));
-            videoEndTimer.start(remaining, self.onVideoEndCallback);
+            videoPlaybackTracker.start(remaining, self.onVideoEndCallback);
             return;
           }
           
@@ -700,7 +734,7 @@ function YouTubePlayer(props) {
                   console.log('YT: User seeked to', currentTime.toFixed(1));
                   lastReportedSeek.current = currentTime;
                   // Update timer with new position
-                  videoEndTimer.updateTime(currentTime, duration);
+                  videoPlaybackTracker.updateTime(currentTime, duration);
                   if (onSeekRef.current) {
                     onSeekRef.current(currentTime);
                   }
@@ -721,7 +755,7 @@ function YouTubePlayer(props) {
             // YT states: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering
             if (event.data === 0 && onEndedRef.current && !handledEnded.current) {
               console.log('YT: Video ended (state event)');
-              videoEndTimer.stop();
+              videoPlaybackTracker.stop();
               handledEnded.current = true;
               onEndedRef.current();
             } else if (event.data === 1 && onStateChangeRef.current) {
@@ -734,10 +768,18 @@ function YouTubePlayer(props) {
               // Start background-safe timer for video end
               if (duration > 0) {
                 var remaining = duration - time;
-                videoEndTimer.start(remaining, function() {
-                  if (!handledEnded.current && onEndedRef.current) {
+                videoPlaybackTracker.start(remaining, function() {
+                  console.log('PlaybackTracker: Callback fired! handledEnded:', handledEnded.current);
+                  if (!handledEnded.current) {
                     handledEnded.current = true;
-                    onEndedRef.current();
+                    // Try onEndedRef first, then global callback as fallback
+                    if (onEndedRef.current) {
+                      console.log('PlaybackTracker: Calling onEndedRef.current');
+                      onEndedRef.current();
+                    } else if (globalYTPlayer.onVideoEndCallback) {
+                      console.log('PlaybackTracker: Calling globalYTPlayer.onVideoEndCallback');
+                      globalYTPlayer.onVideoEndCallback();
+                    }
                   }
                 });
               }
@@ -747,7 +789,7 @@ function YouTubePlayer(props) {
               var time = playerRef.current.getCurrentTime();
               console.log('YT: User paused at', time.toFixed(1));
               lastKnownTime.current = time;
-              videoEndTimer.stop(); // Stop timer when paused
+              videoPlaybackTracker.stop(); // Stop timer when paused
               onStateChangeRef.current('paused', time);
             }
           }
@@ -765,7 +807,7 @@ function YouTubePlayer(props) {
     return function() {
       // Only clear timers here - do not destroy player on videoId change
       // Player will be reused with loadVideoById
-      videoEndTimer.stop();
+      videoPlaybackTracker.stop();
       if (seekCheckInterval.current) {
         clearTimeout(seekCheckInterval.current);
         seekCheckInterval.current = null;
@@ -780,7 +822,7 @@ function YouTubePlayer(props) {
   // Cleanup player only on unmount
   useEffect(function() {
     return function() {
-      videoEndTimer.stop();
+      videoPlaybackTracker.stop();
       if (playerRef.current && playerRef.current.destroy) {
         playerRef.current.destroy();
         playerRef.current = null;
@@ -2845,8 +2887,10 @@ function Room(props) {
   }
 
   function handleVideoEnded() {
+    console.log('=== handleVideoEnded called! ===');
+    
     // Stop any existing timer
-    videoEndTimer.stop();
+    videoPlaybackTracker.stop();
     
     // Use refs to get current values (avoid stale closures)
     var isLoop = loopRef.current;
@@ -2856,7 +2900,7 @@ function Room(props) {
     var idx = currentIndexRef.current;
     var video = currentVideoRef.current;
     
-    console.log('Video ended - loop:', isLoop, 'shuffle:', isShuffle, 'autoplay:', isAutoplay, 'index:', idx);
+    console.log('Video ended - loop:', isLoop, 'shuffle:', isShuffle, 'autoplay:', isAutoplay, 'index:', idx, 'playlist:', playlist ? playlist.name : 'none');
     
     // Loop: replay current video
     if (isLoop) {
@@ -2870,7 +2914,7 @@ function Room(props) {
         try {
           var duration = globalYTPlayer.player.getDuration();
           if (duration > 0) {
-            videoEndTimer.start(duration, function() {
+            videoPlaybackTracker.start(duration, function() {
               handleVideoEnded();
             });
           }
@@ -2909,7 +2953,7 @@ function Room(props) {
           try {
             var dur = globalYTPlayer.player.getDuration();
             if (dur > 0) {
-              videoEndTimer.start(dur, function() {
+              videoPlaybackTracker.start(dur, function() {
                 handleVideoEnded();
               });
             }
