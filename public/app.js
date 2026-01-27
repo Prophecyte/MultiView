@@ -307,6 +307,22 @@ function DragonFire() {
 // ============================================
 // YouTube Player Component with Sync
 // ============================================
+// Global reference to YouTube player for direct control (bypasses React state throttling in background tabs)
+var globalYTPlayer = {
+  player: null,
+  isReady: false,
+  lastLoadedId: null,
+  loadVideo: function(videoId) {
+    if (this.player && this.isReady) {
+      console.log('Global: Loading video directly:', videoId);
+      this.lastLoadedId = videoId;
+      this.player.loadVideoById(videoId, 0);
+      return true;
+    }
+    return false;
+  }
+};
+
 function YouTubePlayer(props) {
   var videoId = props.videoId;
   var playbackState = props.playbackState;
@@ -322,6 +338,7 @@ function YouTubePlayer(props) {
   var lastKnownTime = useRef(0);
   var seekCheckInterval = useRef(null);
   var backgroundCheckTimer = useRef(null);
+  var workerRef = useRef(null);
   var lastReportedSeek = useRef(0);
   var handledEnded = useRef(false); // Track if we've handled the ended event for current video
   
@@ -370,6 +387,90 @@ function YouTubePlayer(props) {
     // Reset ended flag for new video
     handledEnded.current = false;
     
+    // Set up Web Worker for reliable background tab timing
+    // Workers are NOT throttled in background tabs
+    var workerCode = 'setInterval(function(){postMessage("tick")},500)';
+    var blob = new Blob([workerCode], { type: 'application/javascript' });
+    var workerUrl = URL.createObjectURL(blob);
+    var worker = new Worker(workerUrl);
+    workerRef.current = worker;
+    
+    worker.onmessage = function() {
+      if (!playerRef.current || !isReady.current) return;
+      try {
+        var ps = playerRef.current.getPlayerState();
+        var ct = playerRef.current.getCurrentTime();
+        var dur = playerRef.current.getDuration();
+        var atEnd = dur > 0 && ct > 0 && ct >= (dur - 0.5);
+        var ended = ps === 0 || ((ps === 2 || ps === -1) && atEnd);
+        
+        if (ended && onEndedRef.current && !handledEnded.current) {
+          console.log('YT: Video ended (worker) state:', ps, 'time:', ct, '/', dur);
+          handledEnded.current = true;
+          onEndedRef.current();
+        }
+        
+        // Reset flag when video is playing and not near end
+        if (ps === 1 && dur > 0 && (dur - ct) > 3) {
+          handledEnded.current = false;
+        }
+      } catch (e) {}
+    };
+    
+    // Also set up setTimeout-based check
+    function checkPlayerState() {
+      if (!playerRef.current || !isReady.current) {
+        seekCheckInterval.current = setTimeout(checkPlayerState, 200);
+        return;
+      }
+      
+      try {
+        var currentTime = playerRef.current.getCurrentTime();
+        var duration = playerRef.current.getDuration();
+        var playerState = playerRef.current.getPlayerState();
+        
+        var isStateEnded = playerState === 0;
+        var isAtEnd = duration > 0 && currentTime > 0 && currentTime >= (duration - 0.5);
+        var isPausedAtEnd = (playerState === 2 || playerState === -1) && isAtEnd;
+        
+        if ((isStateEnded || isPausedAtEnd) && onEndedRef.current && !handledEnded.current) {
+          console.log('YT: Video ended (check) state:', playerState, 'time:', currentTime.toFixed(1));
+          handledEnded.current = true;
+          onEndedRef.current();
+          return;
+        }
+        
+        if (playerState === 1 && duration > 0 && (duration - currentTime) > 3) {
+          handledEnded.current = false;
+        }
+      } catch (e) {}
+      
+      seekCheckInterval.current = setTimeout(checkPlayerState, 200);
+    }
+    seekCheckInterval.current = setTimeout(checkPlayerState, 200);
+    
+    // If player already exists, just load the new video (unless already loaded directly)
+    if (playerRef.current && isReady.current) {
+      // Skip if this video was already loaded directly via globalYTPlayer
+      if (globalYTPlayer.lastLoadedId === videoId) {
+        console.log('Skipping load - already loaded directly:', videoId);
+        globalYTPlayer.lastLoadedId = null; // Clear for next time
+        return;
+      }
+      
+      console.log('Loading new video:', videoId);
+      var currentState = latestStateRef.current;
+      lastKnownTime.current = 0;
+      lastReportedSeek.current = 0;
+      
+      if (currentState === 'playing') {
+        playerRef.current.loadVideoById(videoId, 0);
+      } else {
+        playerRef.current.cueVideoById(videoId, 0);
+      }
+      return;
+    }
+    
     function initPlayer() {
       if (!containerRef.current || playerRef.current) return;
       
@@ -395,6 +496,11 @@ function YouTubePlayer(props) {
             
             console.log('YT Player ready, time:', latestTime.toFixed(1), 'state:', latestState);
             isReady.current = true;
+            
+            // Set global reference for direct control in background tabs
+            globalYTPlayer.player = playerRef.current;
+            globalYTPlayer.isReady = true;
+            
             lastKnownTime.current = latestTime;
             
             // Seek to the exact time (start param only handles whole seconds)
@@ -490,13 +596,16 @@ function YouTubePlayer(props) {
             
             seekCheckInterval.current = setTimeout(checkPlayerState, 200);
             
-            // MessageChannel-based check (not throttled in background tabs)
-            var mc = new MessageChannel();
-            var mcActive = true;
-            backgroundCheckTimer.current = { stop: function() { mcActive = false; } };
+            // Web Worker for reliable background tab timing
+            // Workers are NOT throttled in background tabs
+            var workerCode = 'setInterval(function(){postMessage("tick")},500)';
+            var blob = new Blob([workerCode], { type: 'application/javascript' });
+            var workerUrl = URL.createObjectURL(blob);
+            var worker = new Worker(workerUrl);
+            workerRef.current = worker;
             
-            mc.port2.onmessage = function() {
-              if (!mcActive || !playerRef.current || !isReady.current) return;
+            worker.onmessage = function() {
+              if (!playerRef.current || !isReady.current) return;
               try {
                 var ps = playerRef.current.getPlayerState();
                 var ct = playerRef.current.getCurrentTime();
@@ -505,15 +614,14 @@ function YouTubePlayer(props) {
                 var ended = ps === 0 || ((ps === 2 || ps === -1) && atEnd);
                 
                 if (ended && onEndedRef.current && !handledEnded.current) {
-                  console.log('YT: Video ended (mc check)');
+                  console.log('YT: Video ended (worker check) state:', ps, 'time:', ct, '/', dur);
                   handledEnded.current = true;
                   onEndedRef.current();
-                  return;
                 }
-              } catch (e) {}
-              if (mcActive) setTimeout(function() { mc.port1.postMessage(null); }, 500);
+              } catch (e) {
+                console.error('Worker check error:', e);
+              }
             };
-            setTimeout(function() { mc.port1.postMessage(null); }, 500);
           },
           onStateChange: function(event) {
             // Ignore events triggered by our commands
@@ -549,19 +657,31 @@ function YouTubePlayer(props) {
     }
 
     return function() {
+      // Only clear timers here - do not destroy player on videoId change
+      // Player will be reused with loadVideoById
       if (seekCheckInterval.current) {
         clearTimeout(seekCheckInterval.current);
+        seekCheckInterval.current = null;
       }
-      if (backgroundCheckTimer.current && backgroundCheckTimer.current.stop) {
-        backgroundCheckTimer.current.stop();
+      if (workerRef.current) {
+        workerRef.current.terminate();
+        workerRef.current = null;
       }
+    };
+  }, [videoId]);
+  
+  // Cleanup player only on unmount
+  useEffect(function() {
+    return function() {
       if (playerRef.current && playerRef.current.destroy) {
         playerRef.current.destroy();
         playerRef.current = null;
         isReady.current = false;
+        globalYTPlayer.player = null;
+        globalYTPlayer.isReady = false;
       }
     };
-  }, [videoId]);
+  }, []);
 
   // Check for video end when tab becomes visible again (backup for background throttling)
   useEffect(function() {
@@ -2563,9 +2683,17 @@ function Room(props) {
   function playVideo(video, index) {
     console.log('Playing video:', video.title || video.url);
     var parsed = parseVideoUrl(video.url);
-    currentVideoIdRef.current = parsed ? parsed.id : video.url;
+    var videoId = parsed ? parsed.id : null;
+    currentVideoIdRef.current = videoId || video.url;
     lastSyncedState.current = 'playing';
     lastSyncedTime.current = 0;
+    
+    // Directly load video in YouTube player (bypasses React state throttling in background tabs)
+    if (videoId && parsed.type === 'youtube' && globalYTPlayer.loadVideo(videoId)) {
+      console.log('Loaded video directly via global player');
+    }
+    
+    // Still update React state for UI sync
     setCurrentVideo(video);
     setCurrentIndex(index);
     setPlaybackState('playing');
@@ -2608,14 +2736,16 @@ function Room(props) {
     
     // Loop: replay current video
     if (isLoop) {
-      // Force state change by going to paused first, then playing
-      // This ensures the useEffect triggers even if state was already 'playing'
-      setPlaybackState('paused');
+      // Directly seek and play using YouTube player API (bypasses React state throttling)
+      if (globalYTPlayer.player && globalYTPlayer.isReady) {
+        console.log('Loop: Directly seeking to 0 and playing');
+        globalYTPlayer.player.seekTo(0, true);
+        globalYTPlayer.player.playVideo();
+      }
+      // Also update React state for UI sync
       setPlaybackTime(0);
-      setTimeout(function() {
-        setPlaybackState('playing');
-        broadcastState(video, 'playing', 0);
-      }, 50);
+      setPlaybackState('playing');
+      broadcastState(video, 'playing', 0);
       return;
     }
     
@@ -2635,13 +2765,15 @@ function Room(props) {
         var randomIdx = availableIndices[Math.floor(Math.random() * availableIndices.length)];
         playVideo(videos[randomIdx], randomIdx);
       } else if (videos.length === 1) {
-        // Only one video, replay it - force state change
-        setPlaybackState('paused');
+        // Only one video, replay it - use direct player API
+        if (globalYTPlayer.player && globalYTPlayer.isReady) {
+          console.log('Shuffle single: Directly seeking to 0 and playing');
+          globalYTPlayer.player.seekTo(0, true);
+          globalYTPlayer.player.playVideo();
+        }
         setPlaybackTime(0);
-        setTimeout(function() {
-          setPlaybackState('playing');
-          broadcastState(video, 'playing', 0);
-        }, 50);
+        setPlaybackState('playing');
+        broadcastState(video, 'playing', 0);
       }
       return;
     }
