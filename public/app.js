@@ -2800,6 +2800,23 @@ function Room(props) {
   var joinTime = useRef(Date.now()); // Track when we joined
   var hasInitialVideoSync = useRef(false); // Ensure first video sync always applies
 
+  // Pause video when no users are connected (room is empty)
+  useEffect(function() {
+    // Only check after initial sync has happened
+    if (!hasConfirmedJoin.current) return;
+    
+    // If no users connected, pause the video
+    if (connectedUsers.length === 0) {
+      console.log('Room empty - pausing video');
+      if (globalYTPlayer.player && globalYTPlayer.isReady) {
+        try {
+          globalYTPlayer.player.pauseVideo();
+        } catch (e) {}
+      }
+      setPlaybackState('paused');
+    }
+  }, [connectedUsers]);
+
   function syncRoomState() {
     api.rooms.getSync(room.id).then(function(data) {
       // Check if current user is in room
@@ -3190,7 +3207,13 @@ function Room(props) {
     // Autoplay: play next video in order
     if (isAutoplay && idx < videos.length - 1) {
       playVideo(videos[idx + 1], idx + 1);
+      return;
     }
+    
+    // No autoplay/shuffle/loop - video ends, pause state
+    console.log('Video ended with no autoplay/shuffle/loop - pausing');
+    setPlaybackState('paused');
+    broadcastState(video, 'paused', video ? globalYTPlayer.player.getDuration() : 0);
   }
   
   // Keep ref updated for global callback
