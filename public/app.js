@@ -307,16 +307,131 @@ function DragonFire() {
 // ============================================
 // YouTube Player Component with Sync
 // ============================================
+// Background-safe video end timer using Web Worker
+// Workers run independently and are not throttled in background tabs
+var videoEndTimer = (function() {
+  var worker = null;
+  var callback = null;
+  var expectedEndTime = null;
+  
+  // Create worker that tracks time independently
+  var workerCode = [
+    'var endTime = null;',
+    'var checkInterval = null;',
+    'onmessage = function(e) {',
+    '  if (e.data.action === "start") {',
+    '    endTime = e.data.endTime;',
+    '    if (checkInterval) clearInterval(checkInterval);',
+    '    checkInterval = setInterval(function() {',
+    '      if (endTime && Date.now() >= endTime) {',
+    '        postMessage("ended");',
+    '        clearInterval(checkInterval);',
+    '        checkInterval = null;',
+    '        endTime = null;',
+    '      }',
+    '    }, 200);',
+    '  } else if (e.data.action === "stop") {',
+    '    if (checkInterval) clearInterval(checkInterval);',
+    '    checkInterval = null;',
+    '    endTime = null;',
+    '  } else if (e.data.action === "update") {',
+    '    endTime = e.data.endTime;',
+    '  }',
+    '};'
+  ].join('\n');
+  
+  function init() {
+    if (worker) return;
+    try {
+      var blob = new Blob([workerCode], { type: 'application/javascript' });
+      worker = new Worker(URL.createObjectURL(blob));
+      worker.onmessage = function(e) {
+        if (e.data === 'ended' && callback) {
+          console.log('VideoEndTimer: Video ended (timer)');
+          callback();
+        }
+      };
+    } catch (err) {
+      console.error('Failed to create video end timer worker:', err);
+    }
+  }
+  
+  return {
+    start: function(durationSeconds, onEnded) {
+      init();
+      callback = onEnded;
+      expectedEndTime = Date.now() + (durationSeconds * 1000);
+      if (worker) {
+        worker.postMessage({ action: 'start', endTime: expectedEndTime });
+      }
+      console.log('VideoEndTimer: Started, will end in', durationSeconds.toFixed(1), 'seconds');
+    },
+    stop: function() {
+      callback = null;
+      expectedEndTime = null;
+      if (worker) {
+        worker.postMessage({ action: 'stop' });
+      }
+    },
+    updateTime: function(currentTime, duration) {
+      // Update expected end time if user seeks
+      if (duration > 0 && currentTime >= 0) {
+        var remaining = duration - currentTime;
+        expectedEndTime = Date.now() + (remaining * 1000);
+        if (worker) {
+          worker.postMessage({ action: 'update', endTime: expectedEndTime });
+        }
+      }
+    }
+  };
+})();
+
 // Global reference to YouTube player for direct control (bypasses React state throttling in background tabs)
 var globalYTPlayer = {
   player: null,
   isReady: false,
   lastLoadedId: null,
+  onVideoEndCallback: null,
   loadVideo: function(videoId) {
     if (this.player && this.isReady) {
       console.log('Global: Loading video directly:', videoId);
       this.lastLoadedId = videoId;
       this.player.loadVideoById(videoId, 0);
+      
+      // Try to start timer once video loads (retry until duration is available)
+      var self = this;
+      var attempts = 0;
+      var maxAttempts = 10;
+      
+      function tryStartTimer() {
+        attempts++;
+        if (!self.player || !self.isReady) return;
+        
+        try {
+          var duration = self.player.getDuration();
+          var state = self.player.getPlayerState();
+          
+          // If video is playing (state 1) and has duration, start timer
+          if (duration > 0 && state === 1 && self.onVideoEndCallback) {
+            var currentTime = self.player.getCurrentTime();
+            var remaining = duration - currentTime;
+            console.log('Global: Starting timer, remaining:', remaining.toFixed(1));
+            videoEndTimer.start(remaining, self.onVideoEndCallback);
+            return;
+          }
+          
+          // Retry if video not ready yet
+          if (attempts < maxAttempts) {
+            setTimeout(tryStartTimer, 1000);
+          }
+        } catch (e) {
+          if (attempts < maxAttempts) {
+            setTimeout(tryStartTimer, 1000);
+          }
+        }
+      }
+      
+      setTimeout(tryStartTimer, 1000);
       return true;
     }
     return false;
@@ -584,6 +699,8 @@ function YouTubePlayer(props) {
                 if (timeDiff > 1 && Math.abs(currentTime - lastReportedSeek.current) > 1) {
                   console.log('YT: User seeked to', currentTime.toFixed(1));
                   lastReportedSeek.current = currentTime;
+                  // Update timer with new position
+                  videoEndTimer.updateTime(currentTime, duration);
                   if (onSeekRef.current) {
                     onSeekRef.current(currentTime);
                   }
@@ -596,32 +713,6 @@ function YouTubePlayer(props) {
             
             seekCheckInterval.current = setTimeout(checkPlayerState, 200);
             
-            // Web Worker for reliable background tab timing
-            // Workers are NOT throttled in background tabs
-            var workerCode = 'setInterval(function(){postMessage("tick")},500)';
-            var blob = new Blob([workerCode], { type: 'application/javascript' });
-            var workerUrl = URL.createObjectURL(blob);
-            var worker = new Worker(workerUrl);
-            workerRef.current = worker;
-            
-            worker.onmessage = function() {
-              if (!playerRef.current || !isReady.current) return;
-              try {
-                var ps = playerRef.current.getPlayerState();
-                var ct = playerRef.current.getCurrentTime();
-                var dur = playerRef.current.getDuration();
-                var atEnd = dur > 0 && ct > 0 && ct >= (dur - 0.5);
-                var ended = ps === 0 || ((ps === 2 || ps === -1) && atEnd);
-                
-                if (ended && onEndedRef.current && !handledEnded.current) {
-                  console.log('YT: Video ended (worker check) state:', ps, 'time:', ct, '/', dur);
-                  handledEnded.current = true;
-                  onEndedRef.current();
-                }
-              } catch (e) {
-                console.error('Worker check error:', e);
-              }
-            };
           },
           onStateChange: function(event) {
             // Ignore events triggered by our commands
@@ -629,19 +720,34 @@ function YouTubePlayer(props) {
             
             // YT states: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering
             if (event.data === 0 && onEndedRef.current && !handledEnded.current) {
-              console.log('YT: Video ended');
+              console.log('YT: Video ended (state event)');
+              videoEndTimer.stop();
               handledEnded.current = true;
               onEndedRef.current();
             } else if (event.data === 1 && onStateChangeRef.current) {
               var time = playerRef.current.getCurrentTime();
-              console.log('YT: User played at', time.toFixed(1));
+              var duration = playerRef.current.getDuration();
+              console.log('YT: Playing at', time.toFixed(1), 'duration:', duration.toFixed(1));
               lastKnownTime.current = time;
-              handledEnded.current = false; // Reset when video starts playing
+              handledEnded.current = false;
+              
+              // Start background-safe timer for video end
+              if (duration > 0) {
+                var remaining = duration - time;
+                videoEndTimer.start(remaining, function() {
+                  if (!handledEnded.current && onEndedRef.current) {
+                    handledEnded.current = true;
+                    onEndedRef.current();
+                  }
+                });
+              }
+              
               onStateChangeRef.current('playing', time);
             } else if (event.data === 2 && onStateChangeRef.current) {
               var time = playerRef.current.getCurrentTime();
               console.log('YT: User paused at', time.toFixed(1));
               lastKnownTime.current = time;
+              videoEndTimer.stop(); // Stop timer when paused
               onStateChangeRef.current('paused', time);
             }
           }
@@ -659,6 +765,7 @@ function YouTubePlayer(props) {
     return function() {
       // Only clear timers here - do not destroy player on videoId change
       // Player will be reused with loadVideoById
+      videoEndTimer.stop();
       if (seekCheckInterval.current) {
         clearTimeout(seekCheckInterval.current);
         seekCheckInterval.current = null;
@@ -673,6 +780,7 @@ function YouTubePlayer(props) {
   // Cleanup player only on unmount
   useEffect(function() {
     return function() {
+      videoEndTimer.stop();
       if (playerRef.current && playerRef.current.destroy) {
         playerRef.current.destroy();
         playerRef.current = null;
@@ -2379,6 +2487,7 @@ function Room(props) {
   var activePlaylistRef = useRef(activePlaylist);
   var currentIndexRef = useRef(currentIndex);
   var currentVideoRef = useRef(currentVideo);
+  var handleVideoEndedRef = useRef(null);
   
   // Keep refs updated when state changes
   useEffect(function() { autoplayRef.current = autoplay; }, [autoplay]);
@@ -2387,6 +2496,18 @@ function Room(props) {
   useEffect(function() { activePlaylistRef.current = activePlaylist; }, [activePlaylist]);
   useEffect(function() { currentIndexRef.current = currentIndex; }, [currentIndex]);
   useEffect(function() { currentVideoRef.current = currentVideo; }, [currentVideo]);
+  
+  // Set up global callback for video end timer
+  useEffect(function() {
+    globalYTPlayer.onVideoEndCallback = function() {
+      if (handleVideoEndedRef.current) {
+        handleVideoEndedRef.current();
+      }
+    };
+    return function() {
+      globalYTPlayer.onVideoEndCallback = null;
+    };
+  }, []);
   
   // Close queue context menu on click
   useEffect(function() {
@@ -2724,6 +2845,9 @@ function Room(props) {
   }
 
   function handleVideoEnded() {
+    // Stop any existing timer
+    videoEndTimer.stop();
+    
     // Use refs to get current values (avoid stale closures)
     var isLoop = loopRef.current;
     var isShuffle = shuffleRef.current;
@@ -2741,6 +2865,16 @@ function Room(props) {
         console.log('Loop: Directly seeking to 0 and playing');
         globalYTPlayer.player.seekTo(0, true);
         globalYTPlayer.player.playVideo();
+        
+        // Start timer for the full duration (since we are at 0)
+        try {
+          var duration = globalYTPlayer.player.getDuration();
+          if (duration > 0) {
+            videoEndTimer.start(duration, function() {
+              handleVideoEnded();
+            });
+          }
+        } catch (e) {}
       }
       // Also update React state for UI sync
       setPlaybackTime(0);
@@ -2770,6 +2904,16 @@ function Room(props) {
           console.log('Shuffle single: Directly seeking to 0 and playing');
           globalYTPlayer.player.seekTo(0, true);
           globalYTPlayer.player.playVideo();
+          
+          // Start timer for the full duration
+          try {
+            var dur = globalYTPlayer.player.getDuration();
+            if (dur > 0) {
+              videoEndTimer.start(dur, function() {
+                handleVideoEnded();
+              });
+            }
+          } catch (e) {}
         }
         setPlaybackTime(0);
         setPlaybackState('playing');
@@ -2783,6 +2927,9 @@ function Room(props) {
       playVideo(videos[idx + 1], idx + 1);
     }
   }
+  
+  // Keep ref updated for global callback
+  handleVideoEndedRef.current = handleVideoEnded;
 
   function playNext() {
     if (!activePlaylist) return;
