@@ -837,21 +837,27 @@ function YouTubePlayer(props) {
   useEffect(function() {
     function handleVisibilityChange() {
       if (document.visibilityState === 'visible' && playerRef.current && isReady.current) {
+        console.log('YT Visibility: Tab became visible, checking player state...');
         try {
           var playerState = playerRef.current.getPlayerState();
           var currentTime = playerRef.current.getCurrentTime();
           var duration = playerRef.current.getDuration();
           
+          console.log('YT Visibility: state=' + playerState + ', time=' + currentTime.toFixed(1) + '/' + duration.toFixed(1) + ', handledEnded=' + handledEnded.current);
+          
           var isStateEnded = playerState === 0;
           var isAtEnd = duration > 0 && currentTime > 0 && currentTime >= (duration - 0.5);
           var isPausedAtEnd = (playerState === 2 || playerState === -1) && isAtEnd;
           
-          if ((isStateEnded || isPausedAtEnd) && onEndedRef.current && !handledEnded.current) {
-            console.log('YT: Video ended (visibility check - state:', playerState, 'time:', currentTime.toFixed(1), '/', duration.toFixed(1), ')');
+          if ((isStateEnded || isPausedAtEnd) && onEndedRef.current) {
+            console.log('YT Visibility: Video ended! Triggering callback...');
+            // Reset handledEnded to allow this to fire
             handledEnded.current = true;
             onEndedRef.current();
           }
-        } catch (e) {}
+        } catch (e) {
+          console.error('YT Visibility check error:', e);
+        }
       }
     }
     
