@@ -421,51 +421,128 @@ window.addEventListener('focus', function() {
 });
 
 // Global reference to YouTube player for direct control (bypasses React state throttling in background tabs)
+// Global playlist manager - handles playback without React state (for background tab support)
+// YouTube iframe events fire even in background tabs, but React state updates are throttled
+var globalPlaylist = {
+  videos: [],
+  currentIndex: -1,
+  autoplay: false,
+  shuffle: false,
+  loop: false,
+  onVideoChange: null, // Callback to sync React state when tab becomes active
+  
+  setPlaylist: function(videos, index) {
+    this.videos = videos || [];
+    this.currentIndex = index >= 0 ? index : -1;
+    console.log('GlobalPlaylist: Set', this.videos.length, 'videos, index:', this.currentIndex);
+  },
+  
+  setIndex: function(index) {
+    this.currentIndex = index;
+  },
+  
+  setOptions: function(autoplay, shuffle, loop) {
+    this.autoplay = autoplay;
+    this.shuffle = shuffle;
+    this.loop = loop;
+  },
+  
+  getNextVideo: function() {
+    console.log('GlobalPlaylist.getNextVideo: videos=' + this.videos.length + ', index=' + this.currentIndex + ', autoplay=' + this.autoplay + ', shuffle=' + this.shuffle + ', loop=' + this.loop);
+    
+    if (this.videos.length === 0) {
+      console.log('GlobalPlaylist: No videos in playlist');
+      return null;
+    }
+    
+    // Loop: replay current video
+    if (this.loop && this.currentIndex >= 0 && this.currentIndex < this.videos.length) {
+      console.log('GlobalPlaylist: Loop mode - replaying current video');
+      return { video: this.videos[this.currentIndex], index: this.currentIndex, isLoop: true };
+    }
+    
+    // Shuffle: random video
+    if (this.shuffle) {
+      var availableIndices = [];
+      for (var i = 0; i < this.videos.length; i++) {
+        if (i !== this.currentIndex) availableIndices.push(i);
+      }
+      
+      if (availableIndices.length > 0) {
+        var randomIdx = availableIndices[Math.floor(Math.random() * availableIndices.length)];
+        this.currentIndex = randomIdx;
+        console.log('GlobalPlaylist: Shuffle mode - playing random video at index', randomIdx);
+        return { video: this.videos[randomIdx], index: randomIdx };
+      } else if (this.videos.length === 1) {
+        console.log('GlobalPlaylist: Shuffle mode with 1 video - replaying');
+        return { video: this.videos[0], index: 0, isLoop: true };
+      }
+      console.log('GlobalPlaylist: Shuffle mode but no available videos');
+      return null;
+    }
+    
+    // Autoplay: next video
+    if (this.autoplay && this.currentIndex < this.videos.length - 1) {
+      this.currentIndex++;
+      console.log('GlobalPlaylist: Autoplay mode - playing next video at index', this.currentIndex);
+      return { video: this.videos[this.currentIndex], index: this.currentIndex };
+    }
+    
+    console.log('GlobalPlaylist: No next video (autoplay=' + this.autoplay + ', index=' + this.currentIndex + '/' + this.videos.length + ')');
+    return null;
+  }
+};
+
 var globalYTPlayer = {
   player: null,
   isReady: false,
   lastLoadedId: null,
   onVideoEndCallback: null,
+  
+  // Directly load and play next video (bypasses React state)
+  playNextVideo: function() {
+    var next = globalPlaylist.getNextVideo();
+    if (!next) {
+      console.log('GlobalYT: No next video to play');
+      return false;
+    }
+    
+    var parsed = parseVideoUrl(next.video.url);
+    if (!parsed || parsed.type !== 'youtube') {
+      console.log('GlobalYT: Next video is not YouTube:', next.video.url);
+      // Still notify React to handle non-YouTube videos
+      if (this.onVideoEndCallback) {
+        this.onVideoEndCallback();
+      }
+      return false;
+    }
+    
+    console.log('GlobalYT: Playing next video directly:', parsed.id, 'index:', next.index);
+    
+    if (next.isLoop) {
+      // For loop, seek to beginning
+      if (this.player && this.isReady) {
+        this.player.seekTo(0, true);
+        this.player.playVideo();
+      }
+    } else {
+      // Load new video
+      this.loadVideo(parsed.id);
+    }
+    
+    // Notify React to sync UI (will be processed when tab is active)
+    if (globalPlaylist.onVideoChange) {
+      globalPlaylist.onVideoChange(next.video, next.index);
+    }
+    
+    return true;
+  },
+  
   loadVideo: function(videoId) {
     if (this.player && this.isReady) {
-      console.log('Global: Loading video directly:', videoId);
+      console.log('GlobalYT: Loading video:', videoId);
       this.lastLoadedId = videoId;
       this.player.loadVideoById(videoId, 0);
-      
-      // Try to start timer once video loads (retry until duration is available)
-      var self = this;
-      var attempts = 0;
-      var maxAttempts = 10;
-      
-      function tryStartTimer() {
-        attempts++;
-        if (!self.player || !self.isReady) return;
-        
-        try {
-          var duration = self.player.getDuration();
-          var state = self.player.getPlayerState();
-          
-          // If video is playing (state 1) and has duration, start timer
-          if (duration > 0 && state === 1 && self.onVideoEndCallback) {
-            var currentTime = self.player.getCurrentTime();
-            var remaining = duration - currentTime;
-            console.log('Global: Starting timer, remaining:', remaining.toFixed(1));
-            videoPlaybackTracker.start(remaining, self.onVideoEndCallback);
-            return;
-          }
-          
-          // Retry if video not ready yet
-          if (attempts < maxAttempts) {
-            setTimeout(tryStartTimer, 1000);
-          }
-        } catch (e) {
-          if (attempts < maxAttempts) {
-            setTimeout(tryStartTimer, 1000);
-          }
-        }
-      }
-      
-      setTimeout(tryStartTimer, 1000);
       return true;
     }
     return false;
@@ -749,16 +826,33 @@ function YouTubePlayer(props) {
             
           },
           onStateChange: function(event) {
-            // Ignore events triggered by our commands
-            if (Date.now() - lastCommandTime.current < 300) return;
-            
             // YT states: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering
-            if (event.data === 0 && onEndedRef.current && !handledEnded.current) {
-              console.log('YT: Video ended (state event)');
+            
+            // ALWAYS handle ended event - even if it seems like it came from our command
+            if (event.data === 0) {
+              console.log('YT: ===== VIDEO ENDED (state=0) =====');
               videoPlaybackTracker.stop();
               handledEnded.current = true;
-              onEndedRef.current();
-            } else if (event.data === 1 && onStateChangeRef.current) {
+              
+              // DIRECTLY play next video - bypasses React state which is throttled in background tabs
+              console.log('YT: Calling globalYTPlayer.playNextVideo()');
+              var played = globalYTPlayer.playNextVideo();
+              console.log('YT: playNextVideo returned:', played);
+              
+              if (!played) {
+                // No next video or not YouTube, call the regular callback
+                console.log('YT: Falling back to onEndedRef.current');
+                if (onEndedRef.current) {
+                  onEndedRef.current();
+                }
+              }
+              return; // Always return after handling ended
+            }
+            
+            // Ignore other events triggered by our commands
+            if (Date.now() - lastCommandTime.current < 300) return;
+            
+            if (event.data === 1 && onStateChangeRef.current) {
               var time = playerRef.current.getCurrentTime();
               var duration = playerRef.current.getDuration();
               console.log('YT: Playing at', time.toFixed(1), 'duration:', duration.toFixed(1));
@@ -772,13 +866,13 @@ function YouTubePlayer(props) {
                   console.log('PlaybackTracker: Callback fired! handledEnded:', handledEnded.current);
                   if (!handledEnded.current) {
                     handledEnded.current = true;
-                    // Try onEndedRef first, then global callback as fallback
-                    if (onEndedRef.current) {
-                      console.log('PlaybackTracker: Calling onEndedRef.current');
-                      onEndedRef.current();
-                    } else if (globalYTPlayer.onVideoEndCallback) {
-                      console.log('PlaybackTracker: Calling globalYTPlayer.onVideoEndCallback');
-                      globalYTPlayer.onVideoEndCallback();
+                    // Directly play next video
+                    if (!globalYTPlayer.playNextVideo()) {
+                      if (onEndedRef.current) {
+                        onEndedRef.current();
+                      } else if (globalYTPlayer.onVideoEndCallback) {
+                        globalYTPlayer.onVideoEndCallback();
+                      }
                     }
                   }
                 });
@@ -849,11 +943,18 @@ function YouTubePlayer(props) {
           var isAtEnd = duration > 0 && currentTime > 0 && currentTime >= (duration - 0.5);
           var isPausedAtEnd = (playerState === 2 || playerState === -1) && isAtEnd;
           
-          if ((isStateEnded || isPausedAtEnd) && onEndedRef.current) {
-            console.log('YT Visibility: Video ended! Triggering callback...');
-            // Reset handledEnded to allow this to fire
+          if (isStateEnded || isPausedAtEnd) {
+            console.log('YT Visibility: Video ended while in background! Playing next...');
             handledEnded.current = true;
-            onEndedRef.current();
+            videoPlaybackTracker.stop();
+            
+            // Directly play next video
+            if (!globalYTPlayer.playNextVideo()) {
+              // Fallback to regular callback
+              if (onEndedRef.current) {
+                onEndedRef.current();
+              }
+            }
           }
         } catch (e) {
           console.error('YT Visibility check error:', e);
@@ -2545,14 +2646,45 @@ function Room(props) {
   useEffect(function() { currentIndexRef.current = currentIndex; }, [currentIndex]);
   useEffect(function() { currentVideoRef.current = currentVideo; }, [currentVideo]);
   
-  // Set up global callback for video end timer
+  // Sync global playlist options for background playback
   useEffect(function() {
+    globalPlaylist.setOptions(autoplay, shuffle, loop);
+    console.log('GlobalPlaylist: Options updated - autoplay:', autoplay, 'shuffle:', shuffle, 'loop:', loop);
+  }, [autoplay, shuffle, loop]);
+  
+  // Sync global playlist videos when active playlist changes
+  useEffect(function() {
+    if (activePlaylist && activePlaylist.videos) {
+      globalPlaylist.setPlaylist(activePlaylist.videos, currentIndex);
+    } else {
+      globalPlaylist.setPlaylist([], -1);
+    }
+  }, [activePlaylist]);
+  
+  // Sync global playlist index when current index changes
+  useEffect(function() {
+    globalPlaylist.setIndex(currentIndex);
+  }, [currentIndex]);
+  
+  // Set up global callback to sync React state when video changes in background
+  useEffect(function() {
+    globalPlaylist.onVideoChange = function(video, index) {
+      console.log('GlobalPlaylist: Video changed in background, syncing React state');
+      setCurrentVideo(video);
+      setCurrentIndex(index);
+      setPlaybackState('playing');
+      setPlaybackTime(0);
+      // Broadcast to other users
+      broadcastState(video, 'playing', 0);
+    };
+    
     globalYTPlayer.onVideoEndCallback = function() {
       if (handleVideoEndedRef.current) {
         handleVideoEndedRef.current();
       }
     };
     return function() {
+      globalPlaylist.onVideoChange = null;
       globalYTPlayer.onVideoEndCallback = null;
     };
   }, []);
