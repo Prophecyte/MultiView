@@ -3050,15 +3050,13 @@ function Room(props) {
     // Only check after initial sync has happened
     if (!hasConfirmedJoin.current) return;
     
-    // If no users connected, pause the video
+    // If no users connected, pause the video locally
+    // Don't broadcast - this is just a local safeguard
     if (connectedUsers.length === 0) {
-      console.log('Room empty - pausing video and broadcasting');
+      console.log('Room empty - pausing video locally');
       if (globalYTPlayer.player && globalYTPlayer.isReady) {
         try {
           globalYTPlayer.player.pauseVideo();
-          var currentTime = globalYTPlayer.player.getCurrentTime() || 0;
-          // Broadcast paused state to server so it persists
-          broadcastState(currentVideoRef.current, 'paused', currentTime);
         } catch (e) {}
       }
       setPlaybackState('paused');
@@ -3157,27 +3155,19 @@ function Room(props) {
             var timeChanged = timeDiff > 1; // Sync if > 1 second difference
             
             if (stateChanged) {
-              // Safeguard: Don't switch to 'playing' if video is at or near the end
+              // Safeguard: Don't switch to 'playing' if video has truly ended (state 0)
               // This prevents stale 'playing' state from server from restarting a finished video
               var shouldApplyState = true;
               if (serverState === 'playing' && globalYTPlayer.player && globalYTPlayer.isReady) {
                 try {
-                  var duration = globalYTPlayer.player.getDuration();
-                  var currentTime = globalYTPlayer.player.getCurrentTime();
                   var playerState = globalYTPlayer.player.getPlayerState();
-                  // If video is ended (state 0) or near the end (within 2 seconds), don't auto-play
-                  if (playerState === 0 || (duration > 0 && currentTime >= duration - 2)) {
-                    console.log('>>> Ignoring server PLAY - video is at end (time:', currentTime, '/', duration, ')');
-                    shouldApplyState = false;
-                    // Also broadcast paused state back to server to correct it
-                    broadcastState(currentVideoRef.current, 'paused', currentTime);
-                  }
-                  // Also ignore if local state is paused and there's been no user interaction 
-                  // for a while, and server time hasn't changed much (stale sync)
-                  else if (lastSyncedState.current === 'paused') {
-                    var timeSinceInteraction = Date.now() - (lastLocalChange.current || 0);
-                    if (timeSinceInteraction > 10000 && timeDiff < 5) {
-                      console.log('>>> Ignoring server PLAY - no recent user interaction and time unchanged');
+                  // Only block if video is in ended state (0) - not buffering or other states
+                  if (playerState === 0) {
+                    var duration = globalYTPlayer.player.getDuration();
+                    var currentTime = globalYTPlayer.player.getCurrentTime();
+                    // Confirm it's actually at the end (not just unstarted)
+                    if (duration > 0 && currentTime >= duration - 1) {
+                      console.log('>>> Ignoring server PLAY - video has ended');
                       shouldApplyState = false;
                     }
                   }
