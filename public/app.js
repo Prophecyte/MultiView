@@ -2011,6 +2011,26 @@ function SettingsContent(props) {
   var theme = _theme[0];
   var setThemeState = _theme[1];
   
+  var _newEmail = useState('');
+  var newEmail = _newEmail[0];
+  var setNewEmail = _newEmail[1];
+  
+  var _emailPassword = useState('');
+  var emailPassword = _emailPassword[0];
+  var setEmailPassword = _emailPassword[1];
+  
+  var _currentPassword = useState('');
+  var currentPassword = _currentPassword[0];
+  var setCurrentPassword = _currentPassword[1];
+  
+  var _newPassword = useState('');
+  var newPassword = _newPassword[0];
+  var setNewPassword = _newPassword[1];
+  
+  var _confirmPassword = useState('');
+  var confirmPassword = _confirmPassword[0];
+  var setConfirmPassword = _confirmPassword[1];
+  
   var _message = useState(null);
   var message = _message[0];
   var setMessage = _message[1];
@@ -2043,6 +2063,50 @@ function SettingsContent(props) {
     });
   }
 
+  function handleChangeEmail() {
+    if (!newEmail.trim() || !emailPassword) {
+      setMessage({ text: 'Please fill in all fields', type: 'error' });
+      return;
+    }
+    setLoading(true);
+    api.auth.updateEmail(newEmail.trim(), emailPassword).then(function() {
+      onUpdate(Object.assign({}, user, { email: newEmail.trim() }));
+      setMessage({ text: 'Email updated!', type: 'success' });
+      setNewEmail('');
+      setEmailPassword('');
+      setLoading(false);
+    }).catch(function(err) {
+      setMessage({ text: err.message, type: 'error' });
+      setLoading(false);
+    });
+  }
+
+  function handleChangePassword() {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setMessage({ text: 'Please fill in all fields', type: 'error' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setMessage({ text: 'New passwords do not match', type: 'error' });
+      return;
+    }
+    if (newPassword.length < 6) {
+      setMessage({ text: 'Password must be at least 6 characters', type: 'error' });
+      return;
+    }
+    setLoading(true);
+    api.auth.updatePassword(currentPassword, newPassword).then(function() {
+      setMessage({ text: 'Password changed!', type: 'success' });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setLoading(false);
+    }).catch(function(err) {
+      setMessage({ text: err.message, type: 'error' });
+      setLoading(false);
+    });
+  }
+
   function handleSetTheme(themeId) {
     setThemeState(themeId);
     localStorage.setItem(userThemeKey, themeId);
@@ -2050,10 +2114,22 @@ function SettingsContent(props) {
     setMessage({ text: 'Theme updated!', type: 'success' });
   }
 
+  function handleDeleteAccount() {
+    if (!confirm('Delete your account? This cannot be undone.')) return;
+    setLoading(true);
+    api.auth.deleteAccount().then(onLogout).catch(function(err) { 
+      setMessage({ text: err.message, type: 'error' }); 
+      setLoading(false); 
+    });
+  }
+
   return React.createElement('div', { className: 'slide-panel-content settings-panel-content' },
     React.createElement('div', { className: 'settings-tabs' },
       React.createElement('button', { className: 'settings-tab' + (tab === 'profile' ? ' active' : ''), onClick: function() { setTab('profile'); setMessage(null); } }, 'Profile'),
+      React.createElement('button', { className: 'settings-tab' + (tab === 'email' ? ' active' : ''), onClick: function() { setTab('email'); setMessage(null); } }, 'Email'),
+      React.createElement('button', { className: 'settings-tab' + (tab === 'password' ? ' active' : ''), onClick: function() { setTab('password'); setMessage(null); } }, 'Password'),
       React.createElement('button', { className: 'settings-tab' + (tab === 'theme' ? ' active' : ''), onClick: function() { setTab('theme'); setMessage(null); } }, 'Theme'),
+      React.createElement('button', { className: 'settings-tab' + (tab === 'account' ? ' active' : ''), onClick: function() { setTab('account'); setMessage(null); } }, 'Account'),
       React.createElement('button', { className: 'settings-tab logout', onClick: onLogout }, 'Logout')
     ),
     message && React.createElement('div', { className: message.type === 'error' ? 'error-message' : 'success-message' }, message.text),
@@ -2070,6 +2146,38 @@ function SettingsContent(props) {
       React.createElement('button', { className: 'btn primary', onClick: handleSaveProfile, disabled: loading }, loading ? 'Saving...' : 'Save Changes')
     ),
     
+    tab === 'email' && React.createElement('div', { className: 'settings-section' },
+      React.createElement('div', { className: 'input-group' },
+        React.createElement('label', null, 'Current Email'),
+        React.createElement('input', { type: 'email', value: user.email, disabled: true })
+      ),
+      React.createElement('div', { className: 'input-group' },
+        React.createElement('label', null, 'New Email'),
+        React.createElement('input', { type: 'email', value: newEmail, onChange: function(e) { setNewEmail(e.target.value); }, placeholder: 'Enter new email' })
+      ),
+      React.createElement('div', { className: 'input-group' },
+        React.createElement('label', null, 'Current Password'),
+        React.createElement('input', { type: 'password', value: emailPassword, onChange: function(e) { setEmailPassword(e.target.value); }, placeholder: 'Confirm with password' })
+      ),
+      React.createElement('button', { className: 'btn primary', onClick: handleChangeEmail, disabled: loading }, loading ? 'Updating...' : 'Update Email')
+    ),
+    
+    tab === 'password' && React.createElement('div', { className: 'settings-section' },
+      React.createElement('div', { className: 'input-group' },
+        React.createElement('label', null, 'Current Password'),
+        React.createElement('input', { type: 'password', value: currentPassword, onChange: function(e) { setCurrentPassword(e.target.value); }, placeholder: 'Enter current password' })
+      ),
+      React.createElement('div', { className: 'input-group' },
+        React.createElement('label', null, 'New Password'),
+        React.createElement('input', { type: 'password', value: newPassword, onChange: function(e) { setNewPassword(e.target.value); }, placeholder: 'Enter new password' })
+      ),
+      React.createElement('div', { className: 'input-group' },
+        React.createElement('label', null, 'Confirm New Password'),
+        React.createElement('input', { type: 'password', value: confirmPassword, onChange: function(e) { setConfirmPassword(e.target.value); }, placeholder: 'Confirm new password' })
+      ),
+      React.createElement('button', { className: 'btn primary', onClick: handleChangePassword, disabled: loading }, loading ? 'Changing...' : 'Change Password')
+    ),
+    
     tab === 'theme' && React.createElement('div', { className: 'settings-section' },
       React.createElement('p', { className: 'section-description' }, 'Choose your preferred color theme'),
       React.createElement('div', { className: 'theme-grid' },
@@ -2083,6 +2191,14 @@ function SettingsContent(props) {
             React.createElement('span', { className: 'theme-name' }, t.name)
           );
         })
+      )
+    ),
+    
+    tab === 'account' && React.createElement('div', { className: 'settings-section' },
+      React.createElement('div', { className: 'danger-zone' },
+        React.createElement('h4', null, '⚠️ Danger Zone'),
+        React.createElement('p', null, 'Deleting your account will permanently remove all your data including rooms and playlists.'),
+        React.createElement('button', { className: 'btn danger', onClick: handleDeleteAccount, disabled: loading }, loading ? 'Deleting...' : 'Delete My Account')
       )
     )
   );
@@ -2216,12 +2332,10 @@ function SettingsModal(props) {
     api.auth.deleteAccount().then(onLogout).catch(function(err) { setMessage({ text: err.message, type: 'error' }); setLoading(false); });
   }
 
-  return React.createElement('div', { className: 'modal-overlay mobile-panel-overlay', onClick: onClose },
-    React.createElement('div', { className: 'modal settings-modal mobile-panel', onClick: function(e) { e.stopPropagation(); } },
-      React.createElement('div', { className: 'mobile-panel-header' },
-        React.createElement('h2', null, 'Settings'),
-        React.createElement('button', { className: 'mobile-panel-close', onClick: onClose }, React.createElement(Icon, { name: 'x', size: 'sm' }))
-      ),
+  return React.createElement('div', { className: 'modal-overlay', onClick: onClose },
+    React.createElement('div', { className: 'modal settings-modal', onClick: function(e) { e.stopPropagation(); } },
+      React.createElement('button', { className: 'modal-close', onClick: onClose }, '×'),
+      React.createElement('h2', null, 'Settings'),
       React.createElement('div', { className: 'settings-tabs' },
         React.createElement('button', { className: 'settings-tab' + (tab === 'profile' ? ' active' : ''), onClick: function() { setTab('profile'); setMessage(null); } }, 'Profile'),
         React.createElement('button', { className: 'settings-tab' + (tab === 'email' ? ' active' : ''), onClick: function() { setTab('email'); setMessage(null); } }, 'Email'),
@@ -3799,7 +3913,7 @@ function Room(props) {
           }
         },
           React.createElement(Icon, { name: 'users' }),
-          React.createElement('span', null, connectedUsers.length + ' Online')
+          React.createElement('span', null, 'Users')
         ),
         React.createElement('button', { 
           className: 'mobile-nav-item' + (shareModalOpen ? ' active' : ''),
@@ -3851,7 +3965,7 @@ function Room(props) {
     // Connected Users slide-up panel  
     React.createElement('div', { className: 'slide-panel connected-panel' + (connectedPanelOpen ? ' open' : '') },
       React.createElement('div', { className: 'slide-panel-header' },
-        React.createElement('h3', null, '👥 Online (', connectedUsers.length, ')'),
+        React.createElement('h3', null, '👥 In Room (', connectedUsers.length, ')'),
         React.createElement('button', { className: 'panel-close-btn', onClick: function() { setConnectedPanelOpen(false); } }, React.createElement(Icon, { name: 'x', size: 'sm' }))
       ),
       React.createElement('div', { className: 'slide-panel-content' },
@@ -3862,11 +3976,21 @@ function Room(props) {
                 var uDisplayName = u.displayName || u.guestName || 'Guest';
                 var isCurrentUser = (u.visitorId || u.guestId) === visitorId;
                 var userColor = u.color || '#d4a824';
-                return React.createElement('div', { key: u.visitorId || u.guestId, className: 'user-list-item' + (isCurrentUser ? ' current' : '') },
-                  React.createElement('div', { className: 'user-avatar', style: { background: userColor } }, uDisplayName.charAt(0).toUpperCase()),
+                var isGuest = u.guestId || (u.visitorId && u.visitorId.startsWith('guest_'));
+                var statusClass = u.status || 'offline';
+                return React.createElement('div', { key: u.visitorId || u.guestId, className: 'user-list-item' + (isCurrentUser ? ' current' : '') + (u.isOwner ? ' owner' : '') },
+                  React.createElement('div', { className: 'user-avatar', style: { background: userColor } }, 
+                    u.isOwner ? '👑' : uDisplayName.charAt(0).toUpperCase()
+                  ),
                   React.createElement('div', { className: 'user-info' },
-                    React.createElement('span', { className: 'user-name' }, uDisplayName, isCurrentUser && ' (You)'),
-                    React.createElement('span', { className: 'user-status online' }, '● Online')
+                    React.createElement('span', { className: 'user-name' }, 
+                      uDisplayName, 
+                      isCurrentUser && ' (You)',
+                      isGuest && !isCurrentUser && React.createElement('span', { className: 'guest-tag' }, ' (guest)')
+                    ),
+                    React.createElement('span', { className: 'user-status ' + statusClass }, 
+                      statusClass === 'online' ? '● Connected' : '○ Away'
+                    )
                   ),
                   isOwner && !isCurrentUser && React.createElement('button', { 
                     className: 'icon-btn sm danger', 
@@ -3879,13 +4003,18 @@ function Room(props) {
       )
     ),
     
-    // Settings slide-up panel
+    // Settings slide-up panel (mobile only - hidden on desktop via CSS)
     React.createElement('div', { className: 'slide-panel settings-panel' + (settingsOpen && user ? ' open' : '') },
       React.createElement('div', { className: 'slide-panel-header' },
         React.createElement('h3', null, '⚙️ Settings'),
         React.createElement('button', { className: 'panel-close-btn', onClick: function() { setSettingsOpen(false); } }, React.createElement(Icon, { name: 'x', size: 'sm' }))
       ),
       user && React.createElement(SettingsContent, { user: user, onUpdate: props.onUpdateUser, onLogout: function() { props.onLogout(); setSettingsOpen(false); } })
+    ),
+    
+    // Desktop Settings Modal (desktop only - hidden on mobile via CSS)
+    settingsOpen && user && React.createElement('div', { className: 'desktop-settings-modal' },
+      React.createElement(SettingsModal, { user: user, onClose: function() { setSettingsOpen(false); }, onUpdate: props.onUpdateUser, onLogout: props.onLogout })
     ),
     
     // Auth modal for guests to create account (keep as modal)

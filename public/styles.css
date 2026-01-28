@@ -1764,6 +1764,17 @@ body {
   max-width: 480px;
 }
 
+/* Desktop settings modal - hide on mobile */
+.desktop-settings-modal {
+  display: block;
+}
+
+@media (max-width: 768px) {
+  .desktop-settings-modal {
+    display: none !important;
+  }
+}
+
 .settings-tabs {
   display: flex;
   gap: 4px;
@@ -3398,6 +3409,11 @@ body {
     padding: 0 !important;
   }
 
+  /* Settings panel needs more height for all tabs */
+  .slide-panel.settings-panel {
+    max-height: 80vh;
+  }
+
   .settings-panel-content .settings-tabs {
     display: flex;
     gap: 4px;
@@ -3409,12 +3425,12 @@ body {
 
   .settings-panel-content .settings-tab {
     flex-shrink: 0;
-    padding: 8px 16px;
+    padding: 8px 12px;
     background: var(--bg-light);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
     color: var(--text-secondary);
-    font-size: 13px;
+    font-size: 12px;
     cursor: pointer;
   }
 
@@ -3504,6 +3520,43 @@ body {
   .settings-panel-content .btn {
     width: 100%;
     margin-top: 8px;
+  }
+
+  .settings-panel-content .danger-zone {
+    margin-top: 0;
+    padding: 16px;
+    background: rgba(239, 68, 68, 0.1);
+    border-radius: var(--radius-md);
+  }
+
+  .settings-panel-content .danger-zone h4 {
+    font-family: 'Cinzel', serif;
+    font-size: 14px;
+    color: var(--error);
+    margin-bottom: 12px;
+  }
+
+  .settings-panel-content .danger-zone p {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+    line-height: 1.5;
+  }
+
+  /* Guest tag in mobile user list */
+  .user-list-item .guest-tag {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: normal;
+  }
+
+  /* Owner styling in mobile user list */
+  .user-list-item.owner {
+    border-color: var(--gold-dark);
+  }
+
+  .user-list-item .user-status.offline {
+    color: var(--text-muted);
   }
 }
 
