@@ -1792,7 +1792,12 @@ function PlaylistPanel(props) {
         ),
         React.createElement('button', { className: 'icon-btn sm', onClick: function() { setShowCreate(true); }, title: 'New playlist' }, 
           React.createElement(Icon, { name: 'plus', size: 'sm' })
-        )
+        ),
+        props.onClose && React.createElement('button', { 
+          className: 'sidebar-close-btn', 
+          onClick: props.onClose,
+          title: 'Close'
+        }, React.createElement(Icon, { name: 'x', size: 'sm' }))
       )
     ),
     showCreate && React.createElement('div', { className: 'create-playlist-form' },
@@ -2623,7 +2628,7 @@ function Room(props) {
   var urlInput = _urlInput[0];
   var setUrlInput = _urlInput[1];
   
-  var _sidebarOpen = useState(true);
+  var _sidebarOpen = useState(window.innerWidth > 768);
   var sidebarOpen = _sidebarOpen[0];
   var setSidebarOpen = _sidebarOpen[1];
   
@@ -3520,7 +3525,8 @@ function Room(props) {
           onImport: handleImportPlaylist,
           isOwner: isPlaylistOwner,
           copiedVideo: copiedVideo,
-          onPaste: handlePasteVideo
+          onPaste: handlePasteVideo,
+          onClose: function() { setSidebarOpen(false); }
         })
       ),
       

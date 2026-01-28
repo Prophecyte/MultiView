@@ -899,6 +899,11 @@ body {
   display: none;
 }
 
+/* Sidebar close button - hidden on desktop, shown on mobile */
+.sidebar-close-btn {
+  display: none;
+}
+
 .sidebar-header {
   display: flex;
   align-items: center;
@@ -2349,33 +2354,77 @@ body {
     font-size: 14px;
   }
 
-  /* Sidebar - slide out menu */
+  /* Sidebar - slide up panel on mobile (like queue) */
   .sidebar {
     position: fixed;
     left: 0;
-    top: 0;
-    bottom: 56px; /* Stop above mobile nav */
-    width: 280px;
+    right: 0;
+    bottom: 56px; /* Above mobile nav */
+    top: auto;
+    width: 100%;
+    height: 70vh;
+    max-height: 70vh;
     z-index: 200;
-    box-shadow: 4px 0 30px rgba(0, 0, 0, 0.7);
-    transform: translateX(0);
+    box-shadow: 0 -4px 30px rgba(0, 0, 0, 0.7);
+    transform: translateY(0); /* Visible when open (no .closed class) */
     transition: transform 0.3s ease;
-    padding-top: env(safe-area-inset-top, 0);
-  }
-
-  .sidebar.closed {
-    transform: translateX(-100%);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    border-top: 1px solid var(--border-color);
+    border-right: none;
     margin-left: 0;
+    opacity: 1;
   }
 
-  /* Add padding to playlist items to prevent cropping by mobile browser chrome */
+  /* Hidden when closed */
+  .sidebar.closed {
+    transform: translateY(100%);
+    margin-left: 0;
+    opacity: 1;
+  }
+
+  /* Drag handle indicator at top of slide-up panel */
+  .sidebar::before {
+    content: '';
+    display: block;
+    width: 40px;
+    height: 4px;
+    background: var(--border-light);
+    border-radius: 2px;
+    margin: 8px auto;
+  }
+
+  /* Add padding to playlist items */
   .sidebar .playlists-list {
     padding-top: 8px;
     padding-bottom: 20px;
+    max-height: calc(70vh - 120px);
+    overflow-y: auto;
   }
 
   .sidebar .sidebar-header {
-    padding-top: 12px;
+    padding: 8px 16px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .sidebar .sidebar-header h3 {
+    font-size: 15px;
+  }
+
+  /* Close button for sidebar */
+  .sidebar-close-btn {
+    display: flex;
+    width: 32px;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-hover);
+    border: none;
+    border-radius: var(--radius-full);
+    color: var(--text-secondary);
+    cursor: pointer;
   }
 
   /* Sidebar overlay when open */
@@ -2385,7 +2434,7 @@ body {
     top: 0;
     left: 0;
     right: 0;
-    bottom: 0;
+    bottom: 56px;
     background: rgba(0, 0, 0, 0.6);
     z-index: 199;
     opacity: 0;
