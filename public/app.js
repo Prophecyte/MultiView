@@ -3245,6 +3245,10 @@ function Room(props) {
   function selectPlaylist(playlist) {
     activePlaylistIdRef.current = playlist ? playlist.id : null;
     setActivePlaylist(playlist);
+    // Close sidebar on mobile when playlist is selected
+    if (window.innerWidth <= 768) {
+      setSidebarOpen(false);
+    }
   }
 
   function handleCreatePlaylist(name) {
@@ -3486,6 +3490,12 @@ function Room(props) {
     ),
     
     React.createElement('div', { className: 'dashboard-content' },
+      // Sidebar overlay for mobile - closes sidebar when tapped
+      sidebarOpen && React.createElement('div', { 
+        className: 'sidebar-overlay visible',
+        onClick: function() { setSidebarOpen(false); }
+      }),
+      
       React.createElement('aside', { className: 'sidebar' + (sidebarOpen ? '' : ' closed') },
         React.createElement(PlaylistPanel, { 
           playlists: playlists, 
@@ -3570,6 +3580,33 @@ function Room(props) {
             React.createElement('button', { className: 'btn sm', onClick: playNext, disabled: !activePlaylist || currentIndex >= ((activePlaylist && activePlaylist.videos || []).length) - 1 }, 'Next ', React.createElement(Icon, { name: 'next', size: 'sm' }))
           ),
           React.createElement(ConnectedUsers, { users: connectedUsers, isHost: isOwner, currentUserId: visitorId, roomId: room.id, onKick: handleKick, onRename: handleRenameUser, onColorChange: handleColorChange })
+        )
+      )
+    ),
+    
+    // Mobile bottom navigation
+    React.createElement('nav', { className: 'mobile-nav' },
+      React.createElement('div', { className: 'mobile-nav-items' },
+        React.createElement('button', { 
+          className: 'mobile-nav-item' + (sidebarOpen ? ' active' : ''),
+          onClick: function() { setSidebarOpen(!sidebarOpen); }
+        },
+          React.createElement(Icon, { name: 'menu', size: 'lg' }),
+          React.createElement('span', null, 'Playlists')
+        ),
+        React.createElement('button', { 
+          className: 'mobile-nav-item',
+          onClick: function() { setShareModalOpen(true); }
+        },
+          React.createElement(Icon, { name: 'share', size: 'lg' }),
+          React.createElement('span', null, 'Share')
+        ),
+        React.createElement('button', { 
+          className: 'mobile-nav-item',
+          onClick: function() { if (user) { setSettingsOpen(true); } else { setShowAuthModal(true); } }
+        },
+          React.createElement(Icon, { name: 'settings', size: 'lg' }),
+          React.createElement('span', null, user ? 'Settings' : 'Sign In')
         )
       )
     ),
