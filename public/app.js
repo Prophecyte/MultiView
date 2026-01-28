@@ -1018,17 +1018,37 @@ function YouTubePlayer(props) {
         // 1 = playing, 2 = paused, 3 = buffering, -1 = unstarted, 0 = ended
         
         if (playbackState === 'playing' && currentState !== 1) {
+          // Safeguard: Don't auto-play if video is at or near the end (state 0 = ended)
+          // This prevents stale 'playing' state from triggering playback on finished videos
+          if (currentState === 0) {
+            var duration = playerRef.current.getDuration();
+            var currentTime = playerRef.current.getCurrentTime();
+            if (duration > 0 && currentTime >= duration - 2) {
+              console.log('>>> Ignoring PLAY - video is at end');
+              return;
+            }
+          }
+          
           console.log('>>> Sending PLAY command (current state:', currentState, ')');
           lastCommandTime.current = Date.now();
           playerRef.current.playVideo();
           
           // Retry play after a short delay if not playing yet
-          // Include state 0 (ended) as it needs time to restart
-          if (currentState === 0 || currentState === 3 || currentState === -1 || currentState === 2) {
+          // But don't retry if video is at the end
+          if (currentState === 3 || currentState === -1 || currentState === 2) {
             setTimeout(function() {
               if (playerRef.current && playbackState === 'playing') {
                 var state = playerRef.current.getPlayerState();
                 if (state !== 1) {
+                  // Don't retry if video is at end
+                  if (state === 0) {
+                    var dur = playerRef.current.getDuration();
+                    var time = playerRef.current.getCurrentTime();
+                    if (dur > 0 && time >= dur - 2) {
+                      console.log('>>> Skipping retry - video at end');
+                      return;
+                    }
+                  }
                   console.log('>>> Retry PLAY (state was:', state, ')');
                   lastCommandTime.current = Date.now();
                   playerRef.current.playVideo();
@@ -1973,6 +1993,101 @@ function GuestMenu(props) {
 // ============================================
 // Settings Modal
 // ============================================
+function SettingsContent(props) {
+  var user = props.user;
+  var onUpdate = props.onUpdate;
+  var onLogout = props.onLogout;
+  
+  var _tab = useState('profile');
+  var tab = _tab[0];
+  var setTab = _tab[1];
+  
+  var _displayName = useState(user.displayName || '');
+  var displayName = _displayName[0];
+  var setDisplayName = _displayName[1];
+  
+  var userThemeKey = 'theme_' + user.id;
+  var _theme = useState(localStorage.getItem(userThemeKey) || 'gold');
+  var theme = _theme[0];
+  var setThemeState = _theme[1];
+  
+  var _message = useState(null);
+  var message = _message[0];
+  var setMessage = _message[1];
+  
+  var _loading = useState(false);
+  var loading = _loading[0];
+  var setLoading = _loading[1];
+
+  var themes = [
+    { id: 'gold', name: 'Dragon Gold', color: '#d4a824' },
+    { id: 'ember', name: 'Ember Red', color: '#ef4444' },
+    { id: 'forest', name: 'Forest Green', color: '#22c55e' },
+    { id: 'ocean', name: 'Ocean Blue', color: '#3b82f6' },
+    { id: 'purple', name: 'Royal Purple', color: '#a855f7' },
+    { id: 'sunset', name: 'Sunset Orange', color: '#f97316' },
+    { id: 'rose', name: 'Rose Pink', color: '#ec4899' },
+    { id: 'cyan', name: 'Cyan', color: '#06b6d4' }
+  ];
+
+  function handleSaveProfile() {
+    if (!displayName.trim()) return;
+    setLoading(true);
+    api.auth.updateProfile(displayName.trim()).then(function() {
+      onUpdate(Object.assign({}, user, { displayName: displayName.trim() }));
+      setMessage({ text: 'Profile saved!', type: 'success' });
+      setLoading(false);
+    }).catch(function(err) {
+      setMessage({ text: err.message, type: 'error' });
+      setLoading(false);
+    });
+  }
+
+  function handleSetTheme(themeId) {
+    setThemeState(themeId);
+    localStorage.setItem(userThemeKey, themeId);
+    document.documentElement.setAttribute('data-theme', themeId);
+    setMessage({ text: 'Theme updated!', type: 'success' });
+  }
+
+  return React.createElement('div', { className: 'slide-panel-content settings-panel-content' },
+    React.createElement('div', { className: 'settings-tabs' },
+      React.createElement('button', { className: 'settings-tab' + (tab === 'profile' ? ' active' : ''), onClick: function() { setTab('profile'); setMessage(null); } }, 'Profile'),
+      React.createElement('button', { className: 'settings-tab' + (tab === 'theme' ? ' active' : ''), onClick: function() { setTab('theme'); setMessage(null); } }, 'Theme'),
+      React.createElement('button', { className: 'settings-tab logout', onClick: onLogout }, 'Logout')
+    ),
+    message && React.createElement('div', { className: message.type === 'error' ? 'error-message' : 'success-message' }, message.text),
+    
+    tab === 'profile' && React.createElement('div', { className: 'settings-section' },
+      React.createElement('div', { className: 'input-group' },
+        React.createElement('label', null, 'Display Name'),
+        React.createElement('input', { type: 'text', value: displayName, onChange: function(e) { setDisplayName(e.target.value); } })
+      ),
+      React.createElement('div', { className: 'input-group' },
+        React.createElement('label', null, 'Email'),
+        React.createElement('input', { type: 'email', value: user.email, disabled: true })
+      ),
+      React.createElement('button', { className: 'btn primary', onClick: handleSaveProfile, disabled: loading }, loading ? 'Saving...' : 'Save Changes')
+    ),
+    
+    tab === 'theme' && React.createElement('div', { className: 'settings-section' },
+      React.createElement('p', { className: 'section-description' }, 'Choose your preferred color theme'),
+      React.createElement('div', { className: 'theme-grid' },
+        themes.map(function(t) {
+          return React.createElement('div', {
+            key: t.id,
+            className: 'theme-option' + (theme === t.id ? ' active' : ''),
+            onClick: function() { handleSetTheme(t.id); }
+          },
+            React.createElement('div', { className: 'theme-swatch', style: { backgroundColor: t.color } }),
+            React.createElement('span', { className: 'theme-name' }, t.name)
+          );
+        })
+      )
+    )
+  );
+}
+
 function SettingsModal(props) {
   var user = props.user;
   var onClose = props.onClose;
@@ -2101,10 +2216,12 @@ function SettingsModal(props) {
     api.auth.deleteAccount().then(onLogout).catch(function(err) { setMessage({ text: err.message, type: 'error' }); setLoading(false); });
   }
 
-  return React.createElement('div', { className: 'modal-overlay', onClick: onClose },
-    React.createElement('div', { className: 'modal settings-modal', onClick: function(e) { e.stopPropagation(); } },
-      React.createElement('button', { className: 'modal-close', onClick: onClose }, '×'),
-      React.createElement('h2', null, 'Settings'),
+  return React.createElement('div', { className: 'modal-overlay mobile-panel-overlay', onClick: onClose },
+    React.createElement('div', { className: 'modal settings-modal mobile-panel', onClick: function(e) { e.stopPropagation(); } },
+      React.createElement('div', { className: 'mobile-panel-header' },
+        React.createElement('h2', null, 'Settings'),
+        React.createElement('button', { className: 'mobile-panel-close', onClick: onClose }, React.createElement(Icon, { name: 'x', size: 'sm' }))
+      ),
       React.createElement('div', { className: 'settings-tabs' },
         React.createElement('button', { className: 'settings-tab' + (tab === 'profile' ? ' active' : ''), onClick: function() { setTab('profile'); setMessage(null); } }, 'Profile'),
         React.createElement('button', { className: 'settings-tab' + (tab === 'email' ? ' active' : ''), onClick: function() { setTab('email'); setMessage(null); } }, 'Email'),
@@ -2656,6 +2773,10 @@ function Room(props) {
   var settingsOpen = _settingsOpen[0];
   var setSettingsOpen = _settingsOpen[1];
   
+  var _connectedPanelOpen = useState(false);
+  var connectedPanelOpen = _connectedPanelOpen[0];
+  var setConnectedPanelOpen = _connectedPanelOpen[1];
+  
   var _showAuthModal = useState(false);
   var showAuthModal = _showAuthModal[0];
   var setShowAuthModal = _showAuthModal[1];
@@ -2817,10 +2938,13 @@ function Room(props) {
     
     // If no users connected, pause the video
     if (connectedUsers.length === 0) {
-      console.log('Room empty - pausing video');
+      console.log('Room empty - pausing video and broadcasting');
       if (globalYTPlayer.player && globalYTPlayer.isReady) {
         try {
           globalYTPlayer.player.pauseVideo();
+          var currentTime = globalYTPlayer.player.getCurrentTime() || 0;
+          // Broadcast paused state to server so it persists
+          broadcastState(currentVideoRef.current, 'paused', currentTime);
         } catch (e) {}
       }
       setPlaybackState('paused');
@@ -2919,9 +3043,38 @@ function Room(props) {
             var timeChanged = timeDiff > 1; // Sync if > 1 second difference
             
             if (stateChanged) {
-              console.log('>>> STATE CHANGE:', lastSyncedState.current, '->', serverState);
-              lastSyncedState.current = serverState;
-              setPlaybackState(serverState);
+              // Safeguard: Don't switch to 'playing' if video is at or near the end
+              // This prevents stale 'playing' state from server from restarting a finished video
+              var shouldApplyState = true;
+              if (serverState === 'playing' && globalYTPlayer.player && globalYTPlayer.isReady) {
+                try {
+                  var duration = globalYTPlayer.player.getDuration();
+                  var currentTime = globalYTPlayer.player.getCurrentTime();
+                  var playerState = globalYTPlayer.player.getPlayerState();
+                  // If video is ended (state 0) or near the end (within 2 seconds), don't auto-play
+                  if (playerState === 0 || (duration > 0 && currentTime >= duration - 2)) {
+                    console.log('>>> Ignoring server PLAY - video is at end (time:', currentTime, '/', duration, ')');
+                    shouldApplyState = false;
+                    // Also broadcast paused state back to server to correct it
+                    broadcastState(currentVideoRef.current, 'paused', currentTime);
+                  }
+                  // Also ignore if local state is paused and there's been no user interaction 
+                  // for a while, and server time hasn't changed much (stale sync)
+                  else if (lastSyncedState.current === 'paused') {
+                    var timeSinceInteraction = Date.now() - (lastLocalChange.current || 0);
+                    if (timeSinceInteraction > 10000 && timeDiff < 5) {
+                      console.log('>>> Ignoring server PLAY - no recent user interaction and time unchanged');
+                      shouldApplyState = false;
+                    }
+                  }
+                } catch (e) {}
+              }
+              
+              if (shouldApplyState) {
+                console.log('>>> STATE CHANGE:', lastSyncedState.current, '->', serverState);
+                lastSyncedState.current = serverState;
+                setPlaybackState(serverState);
+              }
             }
             
             if (timeChanged) {
@@ -3617,50 +3770,125 @@ function Room(props) {
       React.createElement('div', { className: 'mobile-nav-items' },
         React.createElement('button', { 
           className: 'mobile-nav-item' + (sidebarOpen ? ' active' : ''),
-          onClick: function() { setSidebarOpen(!sidebarOpen); setMobileQueueOpen(false); }
+          onClick: function() { 
+            var newState = !sidebarOpen;
+            setSidebarOpen(newState); 
+            if (newState) { setMobileQueueOpen(false); setShareModalOpen(false); setSettingsOpen(false); setConnectedPanelOpen(false); }
+          }
         },
-          React.createElement(Icon, { name: 'menu', size: 'lg' }),
+          React.createElement(Icon, { name: 'menu' }),
           React.createElement('span', null, 'Playlists')
         ),
         React.createElement('button', { 
           className: 'mobile-nav-item' + (mobileQueueOpen ? ' active' : ''),
-          onClick: function() { setMobileQueueOpen(!mobileQueueOpen); setSidebarOpen(false); }
+          onClick: function() { 
+            var newState = !mobileQueueOpen;
+            setMobileQueueOpen(newState); 
+            if (newState) { setSidebarOpen(false); setShareModalOpen(false); setSettingsOpen(false); setConnectedPanelOpen(false); }
+          }
         },
-          React.createElement(Icon, { name: 'list', size: 'lg' }),
+          React.createElement(Icon, { name: 'list' }),
           React.createElement('span', null, 'Queue')
         ),
         React.createElement('button', { 
-          className: 'mobile-nav-item',
-          onClick: function() { setShareModalOpen(true); }
+          className: 'mobile-nav-item' + (connectedPanelOpen ? ' active' : ''),
+          onClick: function() { 
+            var newState = !connectedPanelOpen;
+            setConnectedPanelOpen(newState); 
+            if (newState) { setSidebarOpen(false); setMobileQueueOpen(false); setShareModalOpen(false); setSettingsOpen(false); }
+          }
         },
-          React.createElement(Icon, { name: 'share', size: 'lg' }),
+          React.createElement(Icon, { name: 'users' }),
+          React.createElement('span', null, connectedUsers.length + ' Online')
+        ),
+        React.createElement('button', { 
+          className: 'mobile-nav-item' + (shareModalOpen ? ' active' : ''),
+          onClick: function() { 
+            var newState = !shareModalOpen;
+            setShareModalOpen(newState); 
+            if (newState) { setSidebarOpen(false); setMobileQueueOpen(false); setSettingsOpen(false); setConnectedPanelOpen(false); }
+          }
+        },
+          React.createElement(Icon, { name: 'share' }),
           React.createElement('span', null, 'Share')
         ),
         React.createElement('button', { 
-          className: 'mobile-nav-item',
-          onClick: function() { if (user) { setSettingsOpen(true); } else { setShowAuthModal(true); } }
+          className: 'mobile-nav-item' + (settingsOpen ? ' active' : ''),
+          onClick: function() { 
+            if (!user) { setShowAuthModal(true); return; }
+            var newState = !settingsOpen;
+            setSettingsOpen(newState);
+            if (newState) { setSidebarOpen(false); setMobileQueueOpen(false); setShareModalOpen(false); setConnectedPanelOpen(false); }
+          }
         },
-          React.createElement(Icon, { name: 'settings', size: 'lg' }),
+          React.createElement(Icon, { name: 'settings' }),
           React.createElement('span', null, user ? 'Settings' : 'Sign In')
         )
       )
     ),
     
-    shareModalOpen && React.createElement('div', { className: 'modal-overlay', onClick: function() { setShareModalOpen(false); } },
-      React.createElement('div', { className: 'modal', onClick: function(e) { e.stopPropagation(); } },
-        React.createElement('button', { className: 'modal-close', onClick: function() { setShareModalOpen(false); } }, '×'),
-        React.createElement('h2', null, 'Share Room'),
-        React.createElement('p', null, 'Anyone with this link can join'),
+    // Panel overlay (closes any open panel when tapped)
+    (shareModalOpen || connectedPanelOpen || settingsOpen) && React.createElement('div', { 
+      className: 'panel-overlay visible',
+      onClick: function() { setShareModalOpen(false); setConnectedPanelOpen(false); setSettingsOpen(false); }
+    }),
+    
+    // Share slide-up panel
+    React.createElement('div', { className: 'slide-panel share-panel' + (shareModalOpen ? ' open' : '') },
+      React.createElement('div', { className: 'slide-panel-header' },
+        React.createElement('h3', null, '🔗 Share Room'),
+        React.createElement('button', { className: 'panel-close-btn', onClick: function() { setShareModalOpen(false); } }, React.createElement(Icon, { name: 'x', size: 'sm' }))
+      ),
+      React.createElement('div', { className: 'slide-panel-content' },
+        React.createElement('p', { className: 'panel-description' }, 'Anyone with this link can join your room'),
         React.createElement('div', { className: 'share-link-box' },
           React.createElement('input', { value: location.origin + location.pathname + '#/room/' + hostId + '/' + room.id, readOnly: true }),
-          React.createElement('button', { className: 'btn primary', onClick: copyShareLink }, 'Copy')
+          React.createElement('button', { className: 'btn primary', onClick: function() { copyShareLink(); } }, 'Copy Link')
         )
       )
     ),
     
-    settingsOpen && user && React.createElement(SettingsModal, { user: user, onClose: function() { setSettingsOpen(false); }, onUpdate: props.onUpdateUser, onLogout: props.onLogout }),
+    // Connected Users slide-up panel  
+    React.createElement('div', { className: 'slide-panel connected-panel' + (connectedPanelOpen ? ' open' : '') },
+      React.createElement('div', { className: 'slide-panel-header' },
+        React.createElement('h3', null, '👥 Online (', connectedUsers.length, ')'),
+        React.createElement('button', { className: 'panel-close-btn', onClick: function() { setConnectedPanelOpen(false); } }, React.createElement(Icon, { name: 'x', size: 'sm' }))
+      ),
+      React.createElement('div', { className: 'slide-panel-content' },
+        connectedUsers.length === 0 
+          ? React.createElement('p', { className: 'empty-message' }, 'No one else is here yet. Share the room link to invite friends!')
+          : React.createElement('div', { className: 'users-list-panel' },
+              connectedUsers.map(function(u) {
+                var uDisplayName = u.displayName || u.guestName || 'Guest';
+                var isCurrentUser = (u.visitorId || u.guestId) === visitorId;
+                var userColor = u.color || '#d4a824';
+                return React.createElement('div', { key: u.visitorId || u.guestId, className: 'user-list-item' + (isCurrentUser ? ' current' : '') },
+                  React.createElement('div', { className: 'user-avatar', style: { background: userColor } }, uDisplayName.charAt(0).toUpperCase()),
+                  React.createElement('div', { className: 'user-info' },
+                    React.createElement('span', { className: 'user-name' }, uDisplayName, isCurrentUser && ' (You)'),
+                    React.createElement('span', { className: 'user-status online' }, '● Online')
+                  ),
+                  isOwner && !isCurrentUser && React.createElement('button', { 
+                    className: 'icon-btn sm danger', 
+                    onClick: function() { handleKick(u.visitorId || u.guestId); },
+                    title: 'Kick user'
+                  }, React.createElement(Icon, { name: 'x', size: 'sm' }))
+                );
+              })
+            )
+      )
+    ),
     
-    // Auth modal for guests to create account
+    // Settings slide-up panel
+    React.createElement('div', { className: 'slide-panel settings-panel' + (settingsOpen && user ? ' open' : '') },
+      React.createElement('div', { className: 'slide-panel-header' },
+        React.createElement('h3', null, '⚙️ Settings'),
+        React.createElement('button', { className: 'panel-close-btn', onClick: function() { setSettingsOpen(false); } }, React.createElement(Icon, { name: 'x', size: 'sm' }))
+      ),
+      user && React.createElement(SettingsContent, { user: user, onUpdate: props.onUpdateUser, onLogout: function() { props.onLogout(); setSettingsOpen(false); } })
+    ),
+    
+    // Auth modal for guests to create account (keep as modal)
     showAuthModal && React.createElement('div', { className: 'modal-overlay', onClick: function() { setShowAuthModal(false); } },
       React.createElement('div', { className: 'modal auth-modal-in-room', onClick: function(e) { e.stopPropagation(); } },
         React.createElement('button', { className: 'modal-close', onClick: function() { setShowAuthModal(false); } }, '×'),
