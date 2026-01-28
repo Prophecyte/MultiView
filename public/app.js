@@ -288,7 +288,8 @@ function Icon(props) {
     eyeOff: React.createElement(React.Fragment, null, React.createElement('path', { d: 'M17.94,17.94A10.07,10.07,0,0,1,12,20c-7,0-11-8-11-8a18.45,18.45,0,0,1,5.06-5.94' }), React.createElement('path', { d: 'M9.9,4.24A9.12,9.12,0,0,1,12,4c7,0,11,8,11,8a18.5,18.5,0,0,1-2.16,3.19' }), React.createElement('path', { d: 'M14.12,14.12a3,3,0,1,1-4.24-4.24' }), React.createElement('line', { x1: '1', y1: '1', x2: '23', y2: '23' })),
     copy: React.createElement(React.Fragment, null, React.createElement('rect', { x: '9', y: '9', width: '13', height: '13', rx: '2', ry: '2' }), React.createElement('path', { d: 'M5,15H4a2,2,0,0,1-2-2V4A2,2,0,0,1,4,2h9a2,2,0,0,1,2,2V5' })),
     clipboard: React.createElement(React.Fragment, null, React.createElement('path', { d: 'M16,4h2a2,2,0,0,1,2,2V20a2,2,0,0,1-2,2H6a2,2,0,0,1-2-2V6A2,2,0,0,1,6,4H8' }), React.createElement('rect', { x: '8', y: '2', width: '8', height: '4', rx: '1', ry: '1' })),
-    download: React.createElement(React.Fragment, null, React.createElement('path', { d: 'M21,15v4a2,2,0,0,1-2,2H5a2,2,0,0,1-2-2V15' }), React.createElement('polyline', { points: '7,10 12,15 17,10' }), React.createElement('line', { x1: '12', y1: '15', x2: '12', y2: '3' }))
+    download: React.createElement(React.Fragment, null, React.createElement('path', { d: 'M21,15v4a2,2,0,0,1-2,2H5a2,2,0,0,1-2-2V15' }), React.createElement('polyline', { points: '7,10 12,15 17,10' }), React.createElement('line', { x1: '12', y1: '15', x2: '12', y2: '3' })),
+    list: React.createElement(React.Fragment, null, React.createElement('line', { x1: '8', y1: '6', x2: '21', y2: '6' }), React.createElement('line', { x1: '8', y1: '12', x2: '21', y2: '12' }), React.createElement('line', { x1: '8', y1: '18', x2: '21', y2: '18' }), React.createElement('line', { x1: '3', y1: '6', x2: '3.01', y2: '6' }), React.createElement('line', { x1: '3', y1: '12', x2: '3.01', y2: '12' }), React.createElement('line', { x1: '3', y1: '18', x2: '3.01', y2: '18' }))
   };
   return React.createElement('svg', { width: s, height: s, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round' }, paths[name] || null);
 }
@@ -2626,6 +2627,10 @@ function Room(props) {
   var sidebarOpen = _sidebarOpen[0];
   var setSidebarOpen = _sidebarOpen[1];
   
+  var _mobileQueueOpen = useState(false);
+  var mobileQueueOpen = _mobileQueueOpen[0];
+  var setMobileQueueOpen = _mobileQueueOpen[1];
+  
   var _roomName = useState(room.name);
   var roomName = _roomName[0];
   var setRoomName = _roomName[1];
@@ -3089,6 +3094,11 @@ function Room(props) {
     lastSyncedState.current = 'playing';
     lastSyncedTime.current = 0;
     
+    // Close mobile queue panel when video is played
+    if (window.innerWidth <= 768) {
+      setMobileQueueOpen(false);
+    }
+    
     // Directly load video in YouTube player (bypasses React state throttling in background tabs)
     if (videoId && parsed.type === 'youtube' && globalYTPlayer.loadVideo(videoId)) {
       console.log('Loaded video directly via global player');
@@ -3515,8 +3525,20 @@ function Room(props) {
       ),
       
       React.createElement('main', { className: 'main-content' },
-        React.createElement('div', { className: 'queue-panel', onContextMenu: handleQueueContextMenu },
-          React.createElement('div', { className: 'queue-header' }, React.createElement('h3', null, '📜 ', activePlaylist ? activePlaylist.name : 'Select Playlist')),
+        // Mobile queue overlay
+        mobileQueueOpen && React.createElement('div', { 
+          className: 'queue-overlay visible',
+          onClick: function() { setMobileQueueOpen(false); }
+        }),
+        
+        React.createElement('div', { className: 'queue-panel' + (mobileQueueOpen ? ' mobile-open' : ''), onContextMenu: handleQueueContextMenu },
+          React.createElement('div', { className: 'queue-header' }, 
+            React.createElement('h3', null, '📜 ', activePlaylist ? activePlaylist.name : 'Select Playlist'),
+            React.createElement('button', { 
+              className: 'queue-close-btn',
+              onClick: function() { setMobileQueueOpen(false); }
+            }, React.createElement(Icon, { name: 'x', size: 'sm' }))
+          ),
           activePlaylist 
             ? React.createElement(DraggableVideoList, { videos: activePlaylist.videos || [], currentVideo: currentVideo, onPlay: playVideo, onRemove: removeVideo, onRename: renameVideo, onReorder: reorderVideos, onCopy: handleCopyVideo })
             : React.createElement('div', { className: 'empty-queue' }, React.createElement('p', null, 'Select a playlist')),
@@ -3589,10 +3611,17 @@ function Room(props) {
       React.createElement('div', { className: 'mobile-nav-items' },
         React.createElement('button', { 
           className: 'mobile-nav-item' + (sidebarOpen ? ' active' : ''),
-          onClick: function() { setSidebarOpen(!sidebarOpen); }
+          onClick: function() { setSidebarOpen(!sidebarOpen); setMobileQueueOpen(false); }
         },
           React.createElement(Icon, { name: 'menu', size: 'lg' }),
           React.createElement('span', null, 'Playlists')
+        ),
+        React.createElement('button', { 
+          className: 'mobile-nav-item' + (mobileQueueOpen ? ' active' : ''),
+          onClick: function() { setMobileQueueOpen(!mobileQueueOpen); setSidebarOpen(false); }
+        },
+          React.createElement(Icon, { name: 'list', size: 'lg' }),
+          React.createElement('span', null, 'Queue')
         ),
         React.createElement('button', { 
           className: 'mobile-nav-item',
