@@ -4044,3 +4044,273 @@ body {
   background: rgba(231, 76, 60, 0.2);
   color: #e74c3c;
 }
+
+/* ============================================
+   Notes Panel (Right Side)
+   ============================================ */
+.notes-panel {
+  width: 300px;
+  min-width: 300px;
+  background: var(--bg-medium);
+  border-left: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.3s ease, min-width 0.3s ease, opacity 0.3s ease;
+  overflow: hidden;
+}
+
+.notes-panel.closed {
+  width: 0;
+  min-width: 0;
+  opacity: 0;
+  border-left: none;
+}
+
+.notes-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-dark);
+}
+
+.notes-panel-header h3 {
+  font-family: 'Cinzel', serif;
+  font-size: 14px;
+  color: var(--gold);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.notes-header-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.notes-panel-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.video-notes-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.notes-video-info {
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.notes-video-title {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-weight: 500;
+  display: block;
+  word-break: break-word;
+}
+
+.notes-textarea {
+  flex: 1;
+  min-height: 200px;
+  width: 100%;
+  padding: 12px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: none;
+}
+
+.notes-textarea:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+
+.notes-textarea::placeholder {
+  color: var(--text-muted);
+}
+
+.notes-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.notes-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.notes-readonly {
+  flex: 1;
+}
+
+.notes-content {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  padding: 12px;
+  background: var(--bg-dark);
+  border-radius: var(--radius-md);
+}
+
+.notes-empty,
+.notes-empty-text {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 24px;
+}
+
+.notes-toggle {
+  margin-left: 8px;
+}
+
+/* ============================================
+   Queue Sort Styles
+   ============================================ */
+.queue-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sort-dropdown {
+  position: relative;
+}
+
+.sort-dropdown .icon-btn {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.sort-indicator {
+  font-size: 10px;
+  font-weight: bold;
+  margin-left: 2px;
+}
+
+.queue-header-actions .icon-btn.active {
+  background: var(--gold-subtle);
+  color: var(--gold);
+}
+
+/* ============================================
+   Mobile Notes Panel
+   ============================================ */
+@media (max-width: 768px) {
+  .notes-panel {
+    display: none;
+  }
+  
+  .notes-toggle {
+    display: none;
+  }
+  
+  /* Notes in mobile slide-up panel */
+  .slide-panel.notes-panel-mobile {
+    display: block;
+  }
+  
+  .slide-panel.notes-panel-mobile .notes-textarea {
+    min-height: 150px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .notes-panel {
+    width: 250px;
+    min-width: 250px;
+  }
+}
+
+/* Adjust main-content to accommodate notes panel */
+.main-content {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  overflow: hidden;
+}
+
+.video-section {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Mobile Notes Panel */
+.slide-panel.notes-panel-mobile {
+  max-height: 75vh;
+}
+
+.slide-panel.notes-panel-mobile .slide-panel-content {
+  padding: 16px;
+}
+
+.slide-panel.notes-panel-mobile .notes-textarea {
+  min-height: 200px;
+  max-height: 40vh;
+}
+
+.slide-panel.notes-panel-mobile .notes-video-title {
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+/* Desktop: show the notes-toggle button */
+.notes-toggle {
+  display: flex;
+}
+
+/* Ensure notes-toggle shows on mobile too */
+@media (max-width: 768px) {
+  .notes-toggle {
+    display: flex !important;
+  }
+  
+  .notes-panel-mobile .notes-header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+}
+
+/* Sorted mode for video items */
+.video-item.sorted {
+  cursor: default;
+}
+
+.video-item.sorted .drag-handle {
+  display: none;
+}
+
+/* Sort indicator styling */
+.sort-dropdown .icon-btn {
+  position: relative;
+}
+
+.sort-indicator {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  font-size: 9px;
+  font-weight: bold;
+  color: var(--gold);
+}

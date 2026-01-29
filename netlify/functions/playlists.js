@@ -277,13 +277,17 @@ export const handler = async (event) => {
       return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
     }
 
-    // PUT /playlists/:id/videos/:videoId - Update video (rename)
+    // PUT /playlists/:id/videos/:videoId - Update video (rename or update notes)
     if (event.httpMethod === 'PUT' && videoMatch) {
       const videoId = videoMatch[1];
-      const { title } = body;
+      const { title, notes } = body;
       
-      if (title) {
+      if (title !== undefined) {
         await sql`UPDATE videos SET title = ${title} WHERE id = ${videoId}::uuid AND playlist_id = ${playlistId}::uuid`;
+      }
+      
+      if (notes !== undefined) {
+        await sql`UPDATE videos SET notes = ${notes || null} WHERE id = ${videoId}::uuid AND playlist_id = ${playlistId}::uuid`;
       }
       
       return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };

@@ -329,6 +329,7 @@ export const handler = async (event) => {
                COALESCE(r.autoplay, true) as autoplay,
                COALESCE(r.shuffle, false) as shuffle,
                COALESCE(r.loop_mode, false) as loop_mode,
+               COALESCE(r.hide_notes, false) as hide_notes,
                u.display_name as owner_name
         FROM rooms r
         JOIN users u ON r.owner_id = u.id
@@ -353,7 +354,8 @@ export const handler = async (event) => {
                        'title', v.title,
                        'url', v.url,
                        'videoType', v.video_type,
-                       'position', v.position
+                       'position', v.position,
+                       'notes', v.notes
                      ) ORDER BY v.position
                    ) FILTER (WHERE v.id IS NOT NULL),
                    '[]'
@@ -374,7 +376,8 @@ export const handler = async (event) => {
                        'title', v.title,
                        'url', v.url,
                        'videoType', v.video_type,
-                       'position', v.position
+                       'position', v.position,
+                       'notes', v.notes
                      ) ORDER BY v.position
                    ) FILTER (WHERE v.id IS NOT NULL),
                    '[]'
@@ -429,7 +432,8 @@ export const handler = async (event) => {
             playbackTime: currentPlaybackTime,
             autoplay: room.autoplay !== false,
             shuffle: room.shuffle === true,
-            loop: room.loop_mode === true
+            loop: room.loop_mode === true,
+            hideNotes: room.hide_notes === true
           },
           playlists,
           isPlaylistOwner: isOwner,
@@ -484,19 +488,20 @@ export const handler = async (event) => {
       return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
     }
 
-    // PUT /rooms/:id/options - Update just the playback options (autoplay, shuffle, loop)
+    // PUT /rooms/:id/options - Update just the playback options (autoplay, shuffle, loop, hideNotes)
     if (event.httpMethod === 'PUT' && subPath === '/options') {
-      const { autoplay, shuffle, loop } = body;
+      const { autoplay, shuffle, loop, hideNotes } = body;
 
       await sql`
         UPDATE rooms 
-        SET autoplay = ${autoplay !== undefined ? autoplay : true},
-            shuffle = ${shuffle !== undefined ? shuffle : false},
-            loop_mode = ${loop !== undefined ? loop : false}
+        SET autoplay = COALESCE(${autoplay}, autoplay),
+            shuffle = COALESCE(${shuffle}, shuffle),
+            loop_mode = COALESCE(${loop}, loop_mode),
+            hide_notes = COALESCE(${hideNotes}, hide_notes)
         WHERE id = ${roomId}::uuid
       `;
 
-      return { statusCode: 200, headers, body: JSON.stringify({ success: true, autoplay, shuffle, loop }) };
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true, autoplay, shuffle, loop, hideNotes }) };
     }
 
     return { statusCode: 404, headers, body: JSON.stringify({ error: 'Not found' }) };

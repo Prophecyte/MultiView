@@ -295,7 +295,12 @@ function Icon(props) {
     list: React.createElement(React.Fragment, null, React.createElement('line', { x1: '8', y1: '6', x2: '21', y2: '6' }), React.createElement('line', { x1: '8', y1: '12', x2: '21', y2: '12' }), React.createElement('line', { x1: '8', y1: '18', x2: '21', y2: '18' }), React.createElement('line', { x1: '3', y1: '6', x2: '3.01', y2: '6' }), React.createElement('line', { x1: '3', y1: '12', x2: '3.01', y2: '12' }), React.createElement('line', { x1: '3', y1: '18', x2: '3.01', y2: '18' })),
     'volume-2': React.createElement(React.Fragment, null, React.createElement('polygon', { points: '11,5 6,9 2,9 2,15 6,15 11,19' }), React.createElement('path', { d: 'M19.07,4.93a10,10,0,0,1,0,14.14' }), React.createElement('path', { d: 'M15.54,8.46a5,5,0,0,1,0,7.07' })),
     'volume-1': React.createElement(React.Fragment, null, React.createElement('polygon', { points: '11,5 6,9 2,9 2,15 6,15 11,19' }), React.createElement('path', { d: 'M15.54,8.46a5,5,0,0,1,0,7.07' })),
-    'volume-x': React.createElement(React.Fragment, null, React.createElement('polygon', { points: '11,5 6,9 2,9 2,15 6,15 11,19' }), React.createElement('line', { x1: '23', y1: '9', x2: '17', y2: '15' }), React.createElement('line', { x1: '17', y1: '9', x2: '23', y2: '15' }))
+    'volume-x': React.createElement(React.Fragment, null, React.createElement('polygon', { points: '11,5 6,9 2,9 2,15 6,15 11,19' }), React.createElement('line', { x1: '23', y1: '9', x2: '17', y2: '15' }), React.createElement('line', { x1: '17', y1: '9', x2: '23', y2: '15' })),
+    sort: React.createElement(React.Fragment, null, React.createElement('line', { x1: '4', y1: '6', x2: '13', y2: '6' }), React.createElement('line', { x1: '4', y1: '12', x2: '17', y2: '12' }), React.createElement('line', { x1: '4', y1: '18', x2: '20', y2: '18' })),
+    'sort-alpha': React.createElement(React.Fragment, null, React.createElement('path', { d: 'M4,6h7' }), React.createElement('path', { d: 'M4,12h5' }), React.createElement('path', { d: 'M4,18h3' }), React.createElement('path', { d: 'M15,6l3,6h-6l3-6z' }), React.createElement('path', { d: 'M21,18h-6l6-6v6z' })),
+    fileText: React.createElement(React.Fragment, null, React.createElement('path', { d: 'M14,2H6a2,2,0,0,0-2,2V20a2,2,0,0,0,2,2H18a2,2,0,0,0,2-2V8Z' }), React.createElement('polyline', { points: '14,2 14,8 20,8' }), React.createElement('line', { x1: '16', y1: '13', x2: '8', y2: '13' }), React.createElement('line', { x1: '16', y1: '17', x2: '8', y2: '17' }), React.createElement('polyline', { points: '10,9 9,9 8,9' })),
+    'chevron-right': React.createElement('polyline', { points: '9,18 15,12 9,6' }),
+    'chevron-left': React.createElement('polyline', { points: '15,18 9,12 15,6' })
   };
   return React.createElement('svg', { width: s, height: s, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round' }, paths[name] || null);
 }
@@ -1511,6 +1516,91 @@ function ConnectedUsers(props) {
 }
 
 // ============================================
+// Video Notes Editor Component
+// ============================================
+function VideoNotesEditor(props) {
+  var video = props.video;
+  var onSave = props.onSave;
+  var isOwner = props.isOwner;
+  
+  var _notes = useState(video ? (video.notes || '') : '');
+  var notes = _notes[0];
+  var setNotes = _notes[1];
+  
+  var _hasChanges = useState(false);
+  var hasChanges = _hasChanges[0];
+  var setHasChanges = _hasChanges[1];
+  
+  var _saving = useState(false);
+  var saving = _saving[0];
+  var setSaving = _saving[1];
+  
+  // Update notes when video changes
+  useEffect(function() {
+    if (video) {
+      setNotes(video.notes || '');
+      setHasChanges(false);
+    }
+  }, [video ? video.id : null]);
+  
+  function handleChange(e) {
+    setNotes(e.target.value);
+    setHasChanges(e.target.value !== (video.notes || ''));
+  }
+  
+  function handleSave() {
+    if (!video || !hasChanges) return;
+    setSaving(true);
+    onSave(video.id, notes);
+    setTimeout(function() {
+      setSaving(false);
+      setHasChanges(false);
+    }, 500);
+  }
+  
+  function handleKeyDown(e) {
+    // Ctrl/Cmd + S to save
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      handleSave();
+    }
+  }
+  
+  if (!video) {
+    return React.createElement('div', { className: 'notes-empty' }, 'Select a video to view notes');
+  }
+  
+  return React.createElement('div', { className: 'video-notes-editor' },
+    React.createElement('div', { className: 'notes-video-info' },
+      React.createElement('span', { className: 'notes-video-title' }, video.title || video.url)
+    ),
+    isOwner 
+      ? React.createElement(React.Fragment, null,
+          React.createElement('textarea', {
+            className: 'notes-textarea',
+            value: notes,
+            onChange: handleChange,
+            onKeyDown: handleKeyDown,
+            placeholder: 'Add notes for this video...\n\nTips:\n• Use notes for timestamps, lyrics, or discussion points\n• Ctrl/Cmd + S to save quickly'
+          }),
+          React.createElement('div', { className: 'notes-actions' },
+            React.createElement('span', { className: 'notes-hint' }, hasChanges ? 'Unsaved changes' : 'All changes saved'),
+            React.createElement('button', { 
+              className: 'btn sm primary', 
+              onClick: handleSave,
+              disabled: !hasChanges || saving
+            }, saving ? 'Saving...' : 'Save Notes')
+          )
+        )
+      : React.createElement('div', { className: 'notes-readonly' },
+          notes 
+            ? React.createElement('pre', { className: 'notes-content' }, notes)
+            : React.createElement('p', { className: 'notes-empty-text' }, 'No notes for this video')
+        )
+  );
+}
+
+// ============================================
 // Draggable Video List with Rename and Copy
 // ============================================
 function DraggableVideoList(props) {
@@ -1521,6 +1611,7 @@ function DraggableVideoList(props) {
   var onRename = props.onRename;
   var onReorder = props.onReorder;
   var onCopy = props.onCopy;
+  var sortMode = props.sortMode; // If set, dragging is disabled
   
   var _dragItem = useState(null);
   var dragItem = _dragItem[0];
@@ -1616,16 +1707,16 @@ function DraggableVideoList(props) {
       
       return React.createElement('div', { 
         key: v.id, 
-        className: 'video-item' + (isPlaying ? ' playing' : '') + (isDragging ? ' dragging' : '') + (isDragOver ? ' drag-over' : ''),
-        draggable: !isEditing,
-        onDragStart: function(e) { handleDragStart(e, i, v); },
-        onDragOver: function(e) { handleDragOver(e, i); },
-        onDrop: function(e) { handleDrop(e, i); },
+        className: 'video-item' + (isPlaying ? ' playing' : '') + (isDragging ? ' dragging' : '') + (isDragOver ? ' drag-over' : '') + (sortMode ? ' sorted' : ''),
+        draggable: !isEditing && !sortMode,
+        onDragStart: function(e) { if (!sortMode) handleDragStart(e, i, v); },
+        onDragOver: function(e) { if (!sortMode) handleDragOver(e, i); },
+        onDrop: function(e) { if (!sortMode) handleDrop(e, i); },
         onDragEnd: handleDragEnd,
         onContextMenu: function(e) { handleContextMenu(e, v); }
       },
         React.createElement('div', { className: 'video-item-top' },
-          React.createElement('div', { className: 'drag-handle' }, React.createElement(Icon, { name: 'grip', size: 'sm' })),
+          !sortMode && React.createElement('div', { className: 'drag-handle' }, React.createElement(Icon, { name: 'grip', size: 'sm' })),
           thumbnail 
             ? React.createElement('img', { className: 'video-thumbnail', src: thumbnail, alt: '', onClick: function() { onPlay(v, i); } })
             : React.createElement('div', { className: 'video-thumbnail placeholder', onClick: function() { onPlay(v, i); } }, React.createElement(Icon, { name: 'play', size: 'sm' })),
@@ -2904,6 +2995,10 @@ function Room(props) {
   var mobileQueueOpen = _mobileQueueOpen[0];
   var setMobileQueueOpen = _mobileQueueOpen[1];
   
+  var _mobileNotesOpen = useState(false);
+  var mobileNotesOpen = _mobileNotesOpen[0];
+  var setMobileNotesOpen = _mobileNotesOpen[1];
+  
   var _roomName = useState(room.name);
   var roomName = _roomName[0];
   var setRoomName = _roomName[1];
@@ -2947,6 +3042,21 @@ function Room(props) {
   var _loop = useState(false);
   var loop = _loop[0];
   var setLoop = _loop[1];
+  
+  // Notes panel (right side panel for current video notes)
+  var _notesPanelOpen = useState(window.innerWidth > 1024);
+  var notesPanelOpen = _notesPanelOpen[0];
+  var setNotesPanelOpen = _notesPanelOpen[1];
+  
+  // Hide notes from non-owners (room setting)
+  var _hideNotes = useState(false);
+  var hideNotes = _hideNotes[0];
+  var setHideNotes = _hideNotes[1];
+  
+  // Sort mode for queue (null = manual, 'alpha' = alphabetical A-Z, 'alpha-desc' = Z-A)
+  var _queueSortMode = useState(null);
+  var queueSortMode = _queueSortMode[0];
+  var setQueueSortMode = _queueSortMode[1];
   
   // Personal volume control (0-100, not synced to room)
   var _volume = useState(parseInt(localStorage.getItem('multiview_volume') || '100', 10));
@@ -3197,6 +3307,9 @@ function Room(props) {
         }
         if (data.room.loop !== undefined && data.room.loop !== loop) {
           setLoop(data.room.loop);
+        }
+        if (data.room.hideNotes !== undefined && data.room.hideNotes !== hideNotes) {
+          setHideNotes(data.room.hideNotes);
         }
         
         // Sync active playlist from server (only if we don't have one selected locally)
@@ -3895,6 +4008,39 @@ function Room(props) {
     });
   }
 
+  function updateVideoNotes(videoId, notes) {
+    if (!activePlaylist) return;
+    api.playlists.updateVideo(activePlaylist.id, videoId, { notes: notes }).then(function() {
+      var updated = Object.assign({}, activePlaylist, { 
+        videos: (activePlaylist.videos || []).map(function(v) { 
+          return v.id === videoId ? Object.assign({}, v, { notes: notes }) : v; 
+        }) 
+      });
+      setPlaylists(playlists.map(function(p) { return p.id === activePlaylist.id ? updated : p; }));
+      setActivePlaylist(updated);
+      showNotif('Notes saved!');
+    });
+  }
+
+  function toggleHideNotes() {
+    var newHideNotes = !hideNotes;
+    setHideNotes(newHideNotes);
+    api.rooms.updateOptions(room.id, { hideNotes: newHideNotes }).then(function() {
+      showNotif(newHideNotes ? 'Notes hidden from guests' : 'Notes visible to all');
+    });
+  }
+
+  function getSortedVideos(videos) {
+    if (!queueSortMode || !videos) return videos;
+    var sorted = videos.slice();
+    if (queueSortMode === 'alpha') {
+      sorted.sort(function(a, b) { return (a.title || '').localeCompare(b.title || ''); });
+    } else if (queueSortMode === 'alpha-desc') {
+      sorted.sort(function(a, b) { return (b.title || '').localeCompare(a.title || ''); });
+    }
+    return sorted;
+  }
+
   function copyShareLink() {
     navigator.clipboard.writeText(location.origin + location.pathname + '#/room/' + hostId + '/' + room.id);
     showNotif('Copied!');
@@ -3998,13 +4144,30 @@ function Room(props) {
         React.createElement('div', { className: 'queue-panel' + (mobileQueueOpen ? ' mobile-open' : ''), onContextMenu: handleQueueContextMenu },
           React.createElement('div', { className: 'queue-header' }, 
             React.createElement('h3', null, '📜 ', activePlaylist ? activePlaylist.name : 'Select Playlist'),
-            React.createElement('button', { 
-              className: 'queue-close-btn',
-              onClick: function() { setMobileQueueOpen(false); }
-            }, React.createElement(Icon, { name: 'x', size: 'sm' }))
+            React.createElement('div', { className: 'queue-header-actions' },
+              // Sort dropdown button
+              React.createElement('div', { className: 'sort-dropdown' },
+                React.createElement('button', { 
+                  className: 'icon-btn sm' + (queueSortMode ? ' active' : ''), 
+                  title: 'Sort: ' + (queueSortMode === 'alpha' ? 'A-Z' : queueSortMode === 'alpha-desc' ? 'Z-A' : 'Manual'),
+                  onClick: function() {
+                    // Cycle through: null -> alpha -> alpha-desc -> null
+                    if (!queueSortMode) setQueueSortMode('alpha');
+                    else if (queueSortMode === 'alpha') setQueueSortMode('alpha-desc');
+                    else setQueueSortMode(null);
+                  }
+                }, React.createElement(Icon, { name: 'sort-alpha', size: 'sm' }), 
+                   queueSortMode && React.createElement('span', { className: 'sort-indicator' }, queueSortMode === 'alpha' ? '↓' : '↑')
+                )
+              ),
+              React.createElement('button', { 
+                className: 'queue-close-btn',
+                onClick: function() { setMobileQueueOpen(false); }
+              }, React.createElement(Icon, { name: 'x', size: 'sm' }))
+            )
           ),
           activePlaylist 
-            ? React.createElement(DraggableVideoList, { videos: activePlaylist.videos || [], currentVideo: currentVideo, onPlay: playVideo, onRemove: removeVideo, onRename: renameVideo, onReorder: reorderVideos, onCopy: handleCopyVideo })
+            ? React.createElement(DraggableVideoList, { videos: getSortedVideos(activePlaylist.videos || []), currentVideo: currentVideo, onPlay: playVideo, onRemove: removeVideo, onRename: renameVideo, onReorder: reorderVideos, onCopy: handleCopyVideo, sortMode: queueSortMode })
             : React.createElement('div', { className: 'empty-queue' }, React.createElement('p', null, 'Select a playlist')),
           
           // Queue panel context menu
@@ -4089,9 +4252,52 @@ function Room(props) {
                 title: 'Volume: ' + volume + '%'
               })
             ),
-            React.createElement('button', { className: 'btn sm', onClick: playNext, disabled: !activePlaylist || currentIndex >= ((activePlaylist && activePlaylist.videos || []).length) - 1 }, 'Next ', React.createElement(Icon, { name: 'next', size: 'sm' }))
+            React.createElement('button', { className: 'btn sm', onClick: playNext, disabled: !activePlaylist || currentIndex >= ((activePlaylist && activePlaylist.videos || []).length) - 1 }, 'Next ', React.createElement(Icon, { name: 'next', size: 'sm' })),
+            // Notes toggle button (show only if not hidden from non-owners OR if owner)
+            // Desktop: toggles notes panel, Mobile: opens slide-up panel
+            (isOwner || !hideNotes) && React.createElement('button', { 
+              className: 'icon-btn toggle notes-toggle' + (notesPanelOpen || mobileNotesOpen ? ' active' : ''), 
+              onClick: function() { 
+                // Check if mobile (based on viewport width)
+                if (window.innerWidth <= 768) {
+                  var newState = !mobileNotesOpen;
+                  setMobileNotesOpen(newState);
+                  if (newState) { setSidebarOpen(false); setMobileQueueOpen(false); setShareModalOpen(false); setSettingsOpen(false); setConnectedPanelOpen(false); }
+                } else {
+                  setNotesPanelOpen(!notesPanelOpen); 
+                }
+              },
+              title: 'Video Notes'
+            }, React.createElement(Icon, { name: 'fileText', size: 'sm' }))
           ),
           React.createElement(ConnectedUsers, { users: connectedUsers, isHost: isOwner, currentUserId: visitorId, roomId: room.id, onKick: handleKick, onRename: handleRenameUser, onColorChange: handleColorChange })
+        ),
+        
+        // Notes Panel (collapsible right panel)
+        (isOwner || !hideNotes) && React.createElement('aside', { className: 'notes-panel' + (notesPanelOpen ? '' : ' closed') },
+          React.createElement('div', { className: 'notes-panel-header' },
+            React.createElement('h3', null, React.createElement(Icon, { name: 'fileText', size: 'sm' }), ' Notes'),
+            React.createElement('div', { className: 'notes-header-actions' },
+              isOwner && React.createElement('button', {
+                className: 'icon-btn sm' + (hideNotes ? ' active' : ''),
+                onClick: toggleHideNotes,
+                title: hideNotes ? 'Notes hidden from guests (click to show)' : 'Notes visible to all (click to hide)'
+              }, React.createElement(Icon, { name: hideNotes ? 'eyeOff' : 'eye', size: 'sm' })),
+              React.createElement('button', { 
+                className: 'icon-btn sm', 
+                onClick: function() { setNotesPanelOpen(false); }
+              }, React.createElement(Icon, { name: 'chevron-right', size: 'sm' }))
+            )
+          ),
+          React.createElement('div', { className: 'notes-panel-content' },
+            currentVideo 
+              ? React.createElement(VideoNotesEditor, {
+                  video: currentVideo,
+                  onSave: updateVideoNotes,
+                  isOwner: isOwner
+                })
+              : React.createElement('div', { className: 'notes-empty' }, 'Select a video to view or edit notes')
+          )
         )
       )
     ),
@@ -4159,9 +4365,9 @@ function Room(props) {
     ),
     
     // Panel overlay (closes any open panel when tapped)
-    (shareModalOpen || connectedPanelOpen || settingsOpen) && React.createElement('div', { 
+    (shareModalOpen || connectedPanelOpen || settingsOpen || mobileNotesOpen) && React.createElement('div', { 
       className: 'panel-overlay visible',
-      onClick: function() { setShareModalOpen(false); setConnectedPanelOpen(false); setSettingsOpen(false); }
+      onClick: function() { setShareModalOpen(false); setConnectedPanelOpen(false); setSettingsOpen(false); setMobileNotesOpen(false); }
     }),
     
     // Share slide-up panel
@@ -4217,6 +4423,30 @@ function Room(props) {
                 );
               })
             )
+      )
+    ),
+    
+    // Mobile Notes slide-up panel (only show if notes not hidden or if owner)
+    (isOwner || !hideNotes) && React.createElement('div', { className: 'slide-panel notes-panel-mobile' + (mobileNotesOpen ? ' open' : '') },
+      React.createElement('div', { className: 'slide-panel-header' },
+        React.createElement('h3', null, '📝 Video Notes'),
+        React.createElement('div', { className: 'notes-header-actions' },
+          isOwner && React.createElement('button', {
+            className: 'icon-btn sm' + (hideNotes ? ' active' : ''),
+            onClick: toggleHideNotes,
+            title: hideNotes ? 'Notes hidden from guests' : 'Notes visible to all'
+          }, React.createElement(Icon, { name: hideNotes ? 'eyeOff' : 'eye', size: 'sm' })),
+          React.createElement('button', { className: 'panel-close-btn', onClick: function() { setMobileNotesOpen(false); } }, React.createElement(Icon, { name: 'x', size: 'sm' }))
+        )
+      ),
+      React.createElement('div', { className: 'slide-panel-content' },
+        currentVideo 
+          ? React.createElement(VideoNotesEditor, {
+              video: currentVideo,
+              onSave: updateVideoNotes,
+              isOwner: isOwner
+            })
+          : React.createElement('div', { className: 'notes-empty' }, 'Select a video to view or edit notes')
       )
     ),
     
