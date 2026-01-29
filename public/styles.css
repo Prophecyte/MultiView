@@ -1769,8 +1769,44 @@ body {
   display: block;
 }
 
+/* Desktop share modal - hide on mobile */
+.desktop-share-modal {
+  display: block;
+}
+
+.share-modal {
+  max-width: 450px;
+}
+
+.share-modal h2 {
+  margin-bottom: 12px;
+}
+
+.share-modal p {
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+.share-modal .share-link-box {
+  display: flex;
+  gap: 8px;
+}
+
+.share-modal .share-link-box input {
+  flex: 1;
+  padding: 10px 12px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
 @media (max-width: 768px) {
   .desktop-settings-modal {
+    display: none !important;
+  }
+  .desktop-share-modal {
     display: none !important;
   }
 }

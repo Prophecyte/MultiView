@@ -4126,6 +4126,21 @@ function Room(props) {
       React.createElement(SettingsModal, { user: user, onClose: function() { setSettingsOpen(false); }, onUpdate: props.onUpdateUser, onLogout: props.onLogout })
     ),
     
+    // Desktop Share Modal (desktop only - hidden on mobile via CSS)
+    shareModalOpen && React.createElement('div', { className: 'desktop-share-modal' },
+      React.createElement('div', { className: 'modal-overlay', onClick: function() { setShareModalOpen(false); } },
+        React.createElement('div', { className: 'modal share-modal', onClick: function(e) { e.stopPropagation(); } },
+          React.createElement('button', { className: 'modal-close', onClick: function() { setShareModalOpen(false); } }, '×'),
+          React.createElement('h2', null, '🔗 Share Room'),
+          React.createElement('p', null, 'Anyone with this link can join your room'),
+          React.createElement('div', { className: 'share-link-box' },
+            React.createElement('input', { value: location.origin + location.pathname + '#/room/' + hostId + '/' + room.id, readOnly: true }),
+            React.createElement('button', { className: 'btn primary', onClick: copyShareLink }, 'Copy Link')
+          )
+        )
+      )
+    ),
+    
     // Auth modal for guests to create account (keep as modal)
     showAuthModal && React.createElement('div', { className: 'modal-overlay', onClick: function() { setShowAuthModal(false); } },
       React.createElement('div', { className: 'modal auth-modal-in-room', onClick: function(e) { e.stopPropagation(); } },
