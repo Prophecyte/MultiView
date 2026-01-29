@@ -148,6 +148,9 @@ api.rooms = {
   },
   updateSync: function(roomId, state) {
     return api.request('/rooms/' + roomId + '/sync', { method: 'PUT', body: JSON.stringify(state) });
+  },
+  updateOptions: function(roomId, options) {
+    return api.request('/rooms/' + roomId + '/options', { method: 'PUT', body: JSON.stringify(options) });
   }
 };
 
@@ -289,7 +292,10 @@ function Icon(props) {
     copy: React.createElement(React.Fragment, null, React.createElement('rect', { x: '9', y: '9', width: '13', height: '13', rx: '2', ry: '2' }), React.createElement('path', { d: 'M5,15H4a2,2,0,0,1-2-2V4A2,2,0,0,1,4,2h9a2,2,0,0,1,2,2V5' })),
     clipboard: React.createElement(React.Fragment, null, React.createElement('path', { d: 'M16,4h2a2,2,0,0,1,2,2V20a2,2,0,0,1-2,2H6a2,2,0,0,1-2-2V6A2,2,0,0,1,6,4H8' }), React.createElement('rect', { x: '8', y: '2', width: '8', height: '4', rx: '1', ry: '1' })),
     download: React.createElement(React.Fragment, null, React.createElement('path', { d: 'M21,15v4a2,2,0,0,1-2,2H5a2,2,0,0,1-2-2V15' }), React.createElement('polyline', { points: '7,10 12,15 17,10' }), React.createElement('line', { x1: '12', y1: '15', x2: '12', y2: '3' })),
-    list: React.createElement(React.Fragment, null, React.createElement('line', { x1: '8', y1: '6', x2: '21', y2: '6' }), React.createElement('line', { x1: '8', y1: '12', x2: '21', y2: '12' }), React.createElement('line', { x1: '8', y1: '18', x2: '21', y2: '18' }), React.createElement('line', { x1: '3', y1: '6', x2: '3.01', y2: '6' }), React.createElement('line', { x1: '3', y1: '12', x2: '3.01', y2: '12' }), React.createElement('line', { x1: '3', y1: '18', x2: '3.01', y2: '18' }))
+    list: React.createElement(React.Fragment, null, React.createElement('line', { x1: '8', y1: '6', x2: '21', y2: '6' }), React.createElement('line', { x1: '8', y1: '12', x2: '21', y2: '12' }), React.createElement('line', { x1: '8', y1: '18', x2: '21', y2: '18' }), React.createElement('line', { x1: '3', y1: '6', x2: '3.01', y2: '6' }), React.createElement('line', { x1: '3', y1: '12', x2: '3.01', y2: '12' }), React.createElement('line', { x1: '3', y1: '18', x2: '3.01', y2: '18' })),
+    'volume-2': React.createElement(React.Fragment, null, React.createElement('polygon', { points: '11,5 6,9 2,9 2,15 6,15 11,19' }), React.createElement('path', { d: 'M19.07,4.93a10,10,0,0,1,0,14.14' }), React.createElement('path', { d: 'M15.54,8.46a5,5,0,0,1,0,7.07' })),
+    'volume-1': React.createElement(React.Fragment, null, React.createElement('polygon', { points: '11,5 6,9 2,9 2,15 6,15 11,19' }), React.createElement('path', { d: 'M15.54,8.46a5,5,0,0,1,0,7.07' })),
+    'volume-x': React.createElement(React.Fragment, null, React.createElement('polygon', { points: '11,5 6,9 2,9 2,15 6,15 11,19' }), React.createElement('line', { x1: '23', y1: '9', x2: '17', y2: '15' }), React.createElement('line', { x1: '17', y1: '9', x2: '23', y2: '15' }))
   };
   return React.createElement('svg', { width: s, height: s, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round' }, paths[name] || null);
 }
@@ -772,6 +778,12 @@ function YouTubePlayer(props) {
             // Set global reference for direct control in background tabs
             globalYTPlayer.player = playerRef.current;
             globalYTPlayer.isReady = true;
+            
+            // Apply saved volume from localStorage
+            var savedVolume = parseInt(localStorage.getItem('multiview_volume') || '100', 10);
+            try {
+              playerRef.current.setVolume(savedVolume);
+            } catch (e) {}
             
             lastKnownTime.current = latestTime;
             
@@ -2936,6 +2948,11 @@ function Room(props) {
   var loop = _loop[0];
   var setLoop = _loop[1];
   
+  // Personal volume control (0-100, not synced to room)
+  var _volume = useState(parseInt(localStorage.getItem('multiview_volume') || '100', 10));
+  var volume = _volume[0];
+  var setVolume = _volume[1];
+  
   // Refs to track latest toggle values for use in callbacks
   var autoplayRef = useRef(autoplay);
   var shuffleRef = useRef(shuffle);
@@ -2955,11 +2972,31 @@ function Room(props) {
   useEffect(function() { currentIndexRef.current = currentIndex; }, [currentIndex]);
   useEffect(function() { currentVideoRef.current = currentVideo; }, [currentVideo]);
   
+  // Save volume to localStorage and apply to player
+  useEffect(function() {
+    localStorage.setItem('multiview_volume', volume.toString());
+    // Apply volume to YouTube player
+    if (globalYTPlayer.player && globalYTPlayer.isReady) {
+      try {
+        globalYTPlayer.player.setVolume(volume);
+      } catch (e) {}
+    }
+  }, [volume]);
+  
   // Sync global playlist options for background playback
   useEffect(function() {
     globalPlaylist.setOptions(autoplay, shuffle, loop);
     console.log('GlobalPlaylist: Options updated - autoplay:', autoplay, 'shuffle:', shuffle, 'loop:', loop);
   }, [autoplay, shuffle, loop]);
+  
+  // Broadcast playback options when changed (only if not during initial sync)
+  function updatePlaybackOptions(newAutoplay, newShuffle, newLoop) {
+    api.rooms.updateOptions(room.id, {
+      autoplay: newAutoplay,
+      shuffle: newShuffle,
+      loop: newLoop
+    }).catch(console.error);
+  }
   
   // Sync global playlist videos when active playlist changes
   useEffect(function() {
@@ -3149,6 +3186,17 @@ function Room(props) {
         // Sync room name
         if (data.room.name && data.room.name !== roomName) {
           setRoomName(data.room.name);
+        }
+        
+        // Sync playback options (autoplay, shuffle, loop) from server
+        if (data.room.autoplay !== undefined && data.room.autoplay !== autoplay) {
+          setAutoplay(data.room.autoplay);
+        }
+        if (data.room.shuffle !== undefined && data.room.shuffle !== shuffle) {
+          setShuffle(data.room.shuffle);
+        }
+        if (data.room.loop !== undefined && data.room.loop !== loop) {
+          setLoop(data.room.loop);
         }
         
         var serverUrl = data.room.currentVideoUrl;
@@ -3959,17 +4007,31 @@ function Room(props) {
             React.createElement('div', { className: 'playback-toggles' },
               React.createElement('button', { 
                 className: 'icon-btn toggle' + (shuffle ? ' active' : ''), 
-                onClick: function() { setShuffle(!shuffle); if (!shuffle) setAutoplay(true); },
+                onClick: function() { 
+                  var newShuffle = !shuffle;
+                  var newAutoplay = newShuffle ? true : autoplay;
+                  setShuffle(newShuffle); 
+                  if (newShuffle) setAutoplay(true);
+                  updatePlaybackOptions(newAutoplay, newShuffle, loop);
+                },
                 title: 'Shuffle' + (shuffle ? ' (On)' : ' (Off)')
               }, React.createElement(Icon, { name: 'shuffle', size: 'sm' })),
               React.createElement('button', { 
                 className: 'icon-btn toggle' + (loop ? ' active' : ''), 
-                onClick: function() { setLoop(!loop); },
+                onClick: function() { 
+                  var newLoop = !loop;
+                  setLoop(newLoop);
+                  updatePlaybackOptions(autoplay, shuffle, newLoop);
+                },
                 title: 'Loop' + (loop ? ' (On)' : ' (Off)')
               }, React.createElement(Icon, { name: 'loop', size: 'sm' })),
               React.createElement('button', { 
                 className: 'icon-btn toggle' + (autoplay ? ' active' : ''), 
-                onClick: function() { setAutoplay(!autoplay); },
+                onClick: function() { 
+                  var newAutoplay = !autoplay;
+                  setAutoplay(newAutoplay);
+                  updatePlaybackOptions(newAutoplay, shuffle, loop);
+                },
                 title: 'Autoplay' + (autoplay ? ' (On)' : ' (Off)')
               }, React.createElement(Icon, { name: 'autoplay', size: 'sm' }))
             ),
@@ -3980,6 +4042,18 @@ function Room(props) {
                     React.createElement('span', { className: 'playing-title' }, currentVideo.title || currentVideo.url)
                   )
                 : React.createElement('span', { className: 'playing-label' }, 'Nothing playing')
+            ),
+            React.createElement('div', { className: 'volume-control' },
+              React.createElement(Icon, { name: volume === 0 ? 'volume-x' : (volume < 50 ? 'volume-1' : 'volume-2'), size: 'sm' }),
+              React.createElement('input', { 
+                type: 'range', 
+                className: 'volume-slider',
+                min: 0, 
+                max: 100, 
+                value: volume, 
+                onChange: function(e) { setVolume(parseInt(e.target.value, 10)); },
+                title: 'Volume: ' + volume + '%'
+              })
             ),
             React.createElement('button', { className: 'btn sm', onClick: playNext, disabled: !activePlaylist || currentIndex >= ((activePlaylist && activePlaylist.videos || []).length) - 1 }, 'Next ', React.createElement(Icon, { name: 'next', size: 'sm' }))
           ),

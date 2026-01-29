@@ -1397,6 +1397,49 @@ body {
   background: var(--gold-subtle);
 }
 
+.volume-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  color: var(--text-muted);
+}
+
+.volume-slider {
+  width: 80px;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--border-color);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  background: var(--gold);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+.volume-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.volume-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  background: var(--gold);
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
+
 .now-playing {
   text-align: center;
   flex: 1;
@@ -2858,6 +2901,14 @@ body {
   .playback-controls .icon-btn {
     width: 48px;
     height: 48px;
+  }
+
+  .volume-control {
+    padding: 0 8px;
+  }
+
+  .volume-slider {
+    width: 100px;
   }
 
   /* Connected users - hidden on mobile (shown in slide-up panel) */

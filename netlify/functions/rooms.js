@@ -326,6 +326,9 @@ export const handler = async (event) => {
         SELECT r.id, r.name, r.owner_id, r.current_video_url, r.current_video_title, 
                r.current_playlist_id, r.playback_updated_at,
                r.playback_state, r.playback_time,
+               COALESCE(r.autoplay, true) as autoplay,
+               COALESCE(r.shuffle, false) as shuffle,
+               COALESCE(r.loop_mode, false) as loop_mode,
                u.display_name as owner_name
         FROM rooms r
         JOIN users u ON r.owner_id = u.id
@@ -423,7 +426,10 @@ export const handler = async (event) => {
             currentPlaylistId: room.current_playlist_id,
             playbackUpdatedAt: room.playback_updated_at,
             playbackState: room.playback_state || 'paused',
-            playbackTime: currentPlaybackTime
+            playbackTime: currentPlaybackTime,
+            autoplay: room.autoplay !== false,
+            shuffle: room.shuffle === true,
+            loop: room.loop_mode === true
           },
           playlists,
           isPlaylistOwner: isOwner,
@@ -443,8 +449,10 @@ export const handler = async (event) => {
 
     // PUT /rooms/:id/sync - Update room playback state
     if (event.httpMethod === 'PUT' && subPath === '/sync') {
-      const { currentVideoUrl, currentVideoTitle, currentPlaylistId, playbackState, playbackTime } = body;
+      const { currentVideoUrl, currentVideoTitle, currentPlaylistId, playbackState, playbackTime, autoplay, shuffle, loop } = body;
 
+      // Build update dynamically based on what's provided
+      // Always update playback state/time if provided
       await sql`
         UPDATE rooms 
         SET current_video_url = ${currentVideoUrl || null},
@@ -452,11 +460,29 @@ export const handler = async (event) => {
             current_playlist_id = ${currentPlaylistId || null},
             playback_state = ${playbackState || 'paused'},
             playback_time = ${playbackTime || 0},
-            playback_updated_at = NOW()
+            playback_updated_at = NOW(),
+            autoplay = COALESCE(${autoplay}, autoplay),
+            shuffle = COALESCE(${shuffle}, shuffle),
+            loop_mode = COALESCE(${loop}, loop_mode)
         WHERE id = ${roomId}::uuid
       `;
 
       return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
+    }
+
+    // PUT /rooms/:id/options - Update just the playback options (autoplay, shuffle, loop)
+    if (event.httpMethod === 'PUT' && subPath === '/options') {
+      const { autoplay, shuffle, loop } = body;
+
+      await sql`
+        UPDATE rooms 
+        SET autoplay = ${autoplay !== undefined ? autoplay : true},
+            shuffle = ${shuffle !== undefined ? shuffle : false},
+            loop_mode = ${loop !== undefined ? loop : false}
+        WHERE id = ${roomId}::uuid
+      `;
+
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true, autoplay, shuffle, loop }) };
     }
 
     return { statusCode: 404, headers, body: JSON.stringify({ error: 'Not found' }) };
