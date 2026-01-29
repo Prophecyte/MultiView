@@ -451,21 +451,35 @@ export const handler = async (event) => {
     if (event.httpMethod === 'PUT' && subPath === '/sync') {
       const { currentVideoUrl, currentVideoTitle, currentPlaylistId, playbackState, playbackTime, autoplay, shuffle, loop } = body;
 
-      // Build update dynamically based on what's provided
-      // Always update playback state/time if provided
-      await sql`
-        UPDATE rooms 
-        SET current_video_url = ${currentVideoUrl || null},
-            current_video_title = ${currentVideoTitle || null},
-            current_playlist_id = ${currentPlaylistId || null},
-            playback_state = ${playbackState || 'paused'},
-            playback_time = ${playbackTime || 0},
-            playback_updated_at = NOW(),
-            autoplay = COALESCE(${autoplay}, autoplay),
-            shuffle = COALESCE(${shuffle}, shuffle),
-            loop_mode = COALESCE(${loop}, loop_mode)
-        WHERE id = ${roomId}::uuid
-      `;
+      // Check if this is a playlist-only update (no video/playback fields)
+      const isPlaylistOnlyUpdate = currentPlaylistId !== undefined && 
+        currentVideoUrl === undefined && 
+        playbackState === undefined && 
+        playbackTime === undefined;
+      
+      if (isPlaylistOnlyUpdate) {
+        // Just update the playlist without affecting video/playback
+        await sql`
+          UPDATE rooms 
+          SET current_playlist_id = ${currentPlaylistId || null}
+          WHERE id = ${roomId}::uuid
+        `;
+      } else {
+        // Full update including video state
+        await sql`
+          UPDATE rooms 
+          SET current_video_url = ${currentVideoUrl || null},
+              current_video_title = ${currentVideoTitle || null},
+              current_playlist_id = ${currentPlaylistId || null},
+              playback_state = ${playbackState || 'paused'},
+              playback_time = ${playbackTime || 0},
+              playback_updated_at = NOW(),
+              autoplay = COALESCE(${autoplay}, autoplay),
+              shuffle = COALESCE(${shuffle}, shuffle),
+              loop_mode = COALESCE(${loop}, loop_mode)
+          WHERE id = ${roomId}::uuid
+        `;
+      }
 
       return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
     }

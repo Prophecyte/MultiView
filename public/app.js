@@ -3199,6 +3199,23 @@ function Room(props) {
           setLoop(data.room.loop);
         }
         
+        // Sync active playlist from server (only if we don't have one selected locally)
+        // This ensures new users joining see the same playlist the room is using
+        if (data.room.currentPlaylistId && data.playlists) {
+          var serverPlaylistId = data.room.currentPlaylistId;
+          // Only sync if we haven't selected a playlist yet, or if the server has a different one
+          // and we made no recent local change
+          if (!activePlaylistIdRef.current || 
+              (serverPlaylistId !== activePlaylistIdRef.current && timeSinceLocalChange >= 2000)) {
+            var serverPlaylist = data.playlists.find(function(p) { return p.id === serverPlaylistId; });
+            if (serverPlaylist) {
+              console.log('>>> SYNCING PLAYLIST from server:', serverPlaylist.name);
+              activePlaylistIdRef.current = serverPlaylistId;
+              setActivePlaylist(serverPlaylist);
+            }
+          }
+        }
+        
         var serverUrl = data.room.currentVideoUrl;
         var serverState = data.room.playbackState || 'paused';
         var serverTime = data.room.playbackTime || 0;
@@ -3688,6 +3705,23 @@ function Room(props) {
     if (window.innerWidth <= 768) {
       setSidebarOpen(false);
     }
+    // Broadcast playlist change to sync with other users
+    broadcastPlaylistChange(playlist ? playlist.id : null);
+  }
+  
+  // Broadcast just the playlist selection without affecting video playback
+  function broadcastPlaylistChange(playlistId) {
+    // Don't broadcast during initial sync
+    if (isInitialSync.current) return;
+    
+    console.log('>>> BROADCASTING PLAYLIST:', playlistId);
+    lastLocalChange.current = Date.now();
+    
+    api.rooms.updateSync(room.id, {
+      currentPlaylistId: playlistId
+    }).catch(function(err) {
+      console.error('Playlist broadcast failed:', err);
+    });
   }
 
   function handleCreatePlaylist(name) {
