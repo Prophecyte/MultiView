@@ -392,6 +392,29 @@ var videoPlaybackTracker = {
     });
     
     if (this.expectedEndTime && this.isPlaying && Date.now() >= this.expectedEndTime) {
+      // Verify with actual player state before triggering - mobile browsers suspend video too
+      if (globalYTPlayer.player && globalYTPlayer.isReady) {
+        try {
+          var playerState = globalYTPlayer.player.getPlayerState();
+          var currentTime = globalYTPlayer.player.getCurrentTime();
+          var duration = globalYTPlayer.player.getDuration();
+          
+          // Only trigger if video truly ended (state 0 and at end)
+          if (playerState !== 0 || (duration > 0 && currentTime < duration - 1)) {
+            console.log('PlaybackTracker: Timer expired but video still playing (state:', playerState, ', time:', currentTime, '/', duration, ')');
+            // Update expected end time based on actual position
+            if (duration > 0 && currentTime >= 0) {
+              var remaining = duration - currentTime;
+              this.expectedEndTime = Date.now() + (remaining * 1000);
+              console.log('PlaybackTracker: Recalculated end time, remaining:', remaining.toFixed(1), 's');
+            }
+            return false;
+          }
+        } catch (e) {
+          console.log('PlaybackTracker: Could not verify player state:', e);
+        }
+      }
+      
       console.log('PlaybackTracker: Video ended while in background, triggering callback!');
       var cb = this.callback;
       this.stop();
@@ -979,11 +1002,13 @@ function YouTubePlayer(props) {
           
           console.log('YT Visibility: state=' + playerState + ', time=' + currentTime.toFixed(1) + '/' + duration.toFixed(1) + ', handledEnded=' + handledEnded.current);
           
+          // Only handle truly ended state (0) - don't trigger on paused state
+          // Mobile browsers may report paused state when tab was suspended
           var isStateEnded = playerState === 0;
           var isAtEnd = duration > 0 && currentTime > 0 && currentTime >= (duration - 0.5);
-          var isPausedAtEnd = (playerState === 2 || playerState === -1) && isAtEnd;
           
-          if (isStateEnded || isPausedAtEnd) {
+          // Only play next if video truly ended AND is at the end
+          if (isStateEnded && isAtEnd && !handledEnded.current) {
             console.log('YT Visibility: Video ended while in background! Playing next...');
             handledEnded.current = true;
             videoPlaybackTracker.stop();
@@ -3182,9 +3207,36 @@ function Room(props) {
             }
             
             if (timeChanged) {
-              console.log('>>> TIME SYNC:', lastSyncedTime.current, '->', serverTime, '(diff:', timeDiff, ')');
-              lastSyncedTime.current = serverTime;
-              setPlaybackTime(serverTime);
+              // Only sync time if it makes sense:
+              // - If paused, sync to server time
+              // - If playing, only sync if server is AHEAD (someone else seeked forward)
+              // - Don't sync backwards during playback (server time is just stale)
+              var shouldSyncTime = true;
+              
+              if (serverState === 'playing' || lastSyncedState.current === 'playing') {
+                // Get current player position
+                var currentPlayerTime = 0;
+                if (globalYTPlayer.player && globalYTPlayer.isReady) {
+                  try {
+                    currentPlayerTime = globalYTPlayer.player.getCurrentTime() || 0;
+                  } catch (e) {}
+                }
+                
+                // Only sync if server is ahead of current position (forward seek)
+                // Don't sync backwards - that's just stale server data
+                if (serverTime < currentPlayerTime - 2) {
+                  console.log('>>> SKIPPING TIME SYNC - server behind player (server:', serverTime.toFixed(1), ', player:', currentPlayerTime.toFixed(1), ')');
+                  shouldSyncTime = false;
+                  // Update server with our current position instead
+                  lastSyncedTime.current = currentPlayerTime;
+                }
+              }
+              
+              if (shouldSyncTime) {
+                console.log('>>> TIME SYNC:', lastSyncedTime.current, '->', serverTime, '(diff:', timeDiff, ')');
+                lastSyncedTime.current = serverTime;
+                setPlaybackTime(serverTime);
+              }
             }
           }
         } else {
@@ -3246,8 +3298,31 @@ function Room(props) {
     
     // Dedicated heartbeat interval (3 seconds) - survives browser throttling better
     // This ensures users stay "online" even when tab is in background
+    // Also periodically broadcast current playback position during playback
     var heartbeatInterval = setInterval(function() {
       api.presence.heartbeat(room.id, 'online').catch(console.error);
+      
+      // Periodically update server with current playback position while playing
+      // This keeps server in sync so new users join at the right position
+      if (!isInitialSync.current && globalYTPlayer.player && globalYTPlayer.isReady) {
+        try {
+          var state = globalYTPlayer.player.getPlayerState();
+          if (state === 1) { // Playing
+            var currentTime = globalYTPlayer.player.getCurrentTime();
+            if (currentTime > 0 && currentVideoRef.current) {
+              // Update server with current position (silent update, no state change)
+              api.rooms.updateSync(room.id, {
+                currentVideoUrl: currentVideoRef.current.url,
+                currentVideoTitle: currentVideoRef.current.title || currentVideoRef.current.url,
+                currentPlaylistId: activePlaylistIdRef.current,
+                playbackState: 'playing',
+                playbackTime: currentTime
+              }).catch(function() {}); // Ignore errors
+              lastSyncedTime.current = currentTime;
+            }
+          }
+        } catch (e) {}
+      }
     }, 3000);
     
     // Also send immediate heartbeat
@@ -3258,6 +3333,29 @@ function Room(props) {
       if (document.visibilityState === 'visible') {
         console.log('Tab visible - syncing...');
         api.presence.heartbeat(room.id, 'online').catch(console.error);
+        
+        // If we were playing, update server with our current position first
+        // This prevents the sync from jumping us back to stale server time
+        if (globalYTPlayer.player && globalYTPlayer.isReady) {
+          try {
+            var state = globalYTPlayer.player.getPlayerState();
+            if (state === 1 || state === 3) { // Playing or buffering
+              var currentTime = globalYTPlayer.player.getCurrentTime();
+              if (currentTime > 0 && currentVideoRef.current) {
+                console.log('Tab visible - updating server with current position:', currentTime.toFixed(1));
+                lastSyncedTime.current = currentTime;
+                api.rooms.updateSync(room.id, {
+                  currentVideoUrl: currentVideoRef.current.url,
+                  currentVideoTitle: currentVideoRef.current.title || currentVideoRef.current.url,
+                  currentPlaylistId: activePlaylistIdRef.current,
+                  playbackState: 'playing',
+                  playbackTime: currentTime
+                }).catch(function() {});
+              }
+            }
+          } catch (e) {}
+        }
+        
         syncRoomState();
       }
     }
@@ -3265,6 +3363,27 @@ function Room(props) {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('focus', function() {
       api.presence.heartbeat(room.id, 'online').catch(console.error);
+      
+      // Same logic for focus event
+      if (globalYTPlayer.player && globalYTPlayer.isReady) {
+        try {
+          var state = globalYTPlayer.player.getPlayerState();
+          if (state === 1 || state === 3) {
+            var currentTime = globalYTPlayer.player.getCurrentTime();
+            if (currentTime > 0 && currentVideoRef.current) {
+              lastSyncedTime.current = currentTime;
+              api.rooms.updateSync(room.id, {
+                currentVideoUrl: currentVideoRef.current.url,
+                currentVideoTitle: currentVideoRef.current.title || currentVideoRef.current.url,
+                currentPlaylistId: activePlaylistIdRef.current,
+                playbackState: 'playing',
+                playbackTime: currentTime
+              }).catch(function() {});
+            }
+          }
+        } catch (e) {}
+      }
+      
       syncRoomState();
     });
     
