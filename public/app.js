@@ -1536,13 +1536,22 @@ function VideoNotesEditor(props) {
   var saving = _saving[0];
   var setSaving = _saving[1];
   
-  // Update notes when video changes
+  // Track the last known video notes to detect external changes
+  var lastKnownNotes = useRef(video ? (video.notes || '') : '');
+  
+  // Update notes when video changes OR when video.notes is updated from sync
   useEffect(function() {
     if (video) {
-      setNotes(video.notes || '');
-      setHasChanges(false);
+      var videoNotes = video.notes || '';
+      // Only update if the video notes changed externally (from sync)
+      // Don't update if user is currently editing (hasChanges)
+      if (videoNotes !== lastKnownNotes.current && !hasChanges) {
+        console.log('>>> Notes synced from server:', video.notesUpdatedBy);
+        setNotes(videoNotes);
+        lastKnownNotes.current = videoNotes;
+      }
     }
-  }, [video ? video.id : null]);
+  }, [video ? video.id : null, video ? video.notes : null, video ? video.notesUpdatedBy : null]);
   
   function handleChange(e) {
     setNotes(e.target.value);
@@ -1553,6 +1562,8 @@ function VideoNotesEditor(props) {
     if (!video || !hasChanges) return;
     setSaving(true);
     onSave(video.id, notes, displayName);
+    // Update lastKnownNotes to the new value we're saving
+    lastKnownNotes.current = notes;
     setTimeout(function() {
       setSaving(false);
       setHasChanges(false);
@@ -3280,6 +3291,27 @@ function Room(props) {
           var updated = data.playlists.find(function(p) { return p.id === targetId; });
           if (updated) {
             setActivePlaylist(updated);
+            
+            // Sync notes to currentVideo if it exists in this playlist
+            // This allows other users to see notes changes in real-time
+            if (currentVideoRef.current && updated.videos) {
+              var freshVideo = updated.videos.find(function(v) { return v.id === currentVideoRef.current.id; });
+              if (freshVideo) {
+                var currentNotes = currentVideoRef.current.notes || '';
+                var freshNotes = freshVideo.notes || '';
+                var currentUpdatedBy = currentVideoRef.current.notesUpdatedBy || '';
+                var freshUpdatedBy = freshVideo.notesUpdatedBy || '';
+                // Only update if notes content or editor changed
+                if (currentNotes !== freshNotes || currentUpdatedBy !== freshUpdatedBy) {
+                  console.log('>>> Syncing notes from another user:', freshUpdatedBy);
+                  setCurrentVideo(Object.assign({}, currentVideoRef.current, { 
+                    notes: freshVideo.notes,
+                    notesUpdatedBy: freshVideo.notesUpdatedBy,
+                    notesUpdatedAt: freshVideo.notesUpdatedAt
+                  }));
+                }
+              }
+            }
           }
           // If playlist was deleted, clear the ref and selection
           else {
@@ -4031,7 +4063,9 @@ function Room(props) {
 
   function updateVideoNotes(videoId, notes, editorName) {
     if (!activePlaylist) return;
+    console.log('>>> Saving notes for video:', videoId, 'by:', editorName);
     api.playlists.updateVideo(activePlaylist.id, videoId, { notes: notes, notesUpdatedBy: editorName }).then(function() {
+      console.log('>>> Notes saved successfully');
       var now = new Date().toISOString();
       var updated = Object.assign({}, activePlaylist, { 
         videos: (activePlaylist.videos || []).map(function(v) { 
@@ -4040,7 +4074,18 @@ function Room(props) {
       });
       setPlaylists(playlists.map(function(p) { return p.id === activePlaylist.id ? updated : p; }));
       setActivePlaylist(updated);
+      // Also update currentVideo if it's the one being edited
+      if (currentVideo && currentVideo.id === videoId) {
+        setCurrentVideo(Object.assign({}, currentVideo, { 
+          notes: notes, 
+          notesUpdatedBy: editorName, 
+          notesUpdatedAt: now 
+        }));
+      }
       showNotif('Notes saved!');
+    }).catch(function(err) {
+      console.error('>>> Failed to save notes:', err);
+      showNotif('Failed to save notes');
     });
   }
 
