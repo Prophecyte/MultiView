@@ -4314,3 +4314,12 @@ body {
   font-weight: bold;
   color: var(--gold);
 }
+
+/* Notes last edit info */
+.notes-last-edit {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-style: italic;
+}

@@ -1522,6 +1522,7 @@ function VideoNotesEditor(props) {
   var video = props.video;
   var onSave = props.onSave;
   var isOwner = props.isOwner;
+  var displayName = props.displayName || 'Guest';
   
   var _notes = useState(video ? (video.notes || '') : '');
   var notes = _notes[0];
@@ -1551,7 +1552,7 @@ function VideoNotesEditor(props) {
   function handleSave() {
     if (!video || !hasChanges) return;
     setSaving(true);
-    onSave(video.id, notes);
+    onSave(video.id, notes, displayName);
     setTimeout(function() {
       setSaving(false);
       setHasChanges(false);
@@ -1566,37 +1567,42 @@ function VideoNotesEditor(props) {
     }
   }
   
+  function formatDate(dateStr) {
+    if (!dateStr) return '';
+    var date = new Date(dateStr);
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  
   if (!video) {
     return React.createElement('div', { className: 'notes-empty' }, 'Select a video to view notes');
   }
   
+  var lastEditInfo = video.notesUpdatedBy 
+    ? 'Last edited by ' + video.notesUpdatedBy + (video.notesUpdatedAt ? ' on ' + formatDate(video.notesUpdatedAt) : '')
+    : null;
+  
   return React.createElement('div', { className: 'video-notes-editor' },
     React.createElement('div', { className: 'notes-video-info' },
-      React.createElement('span', { className: 'notes-video-title' }, video.title || video.url)
+      React.createElement('span', { className: 'notes-video-title' }, video.title || video.url),
+      lastEditInfo && React.createElement('span', { className: 'notes-last-edit' }, lastEditInfo)
     ),
-    isOwner 
-      ? React.createElement(React.Fragment, null,
-          React.createElement('textarea', {
-            className: 'notes-textarea',
-            value: notes,
-            onChange: handleChange,
-            onKeyDown: handleKeyDown,
-            placeholder: 'Add notes for this video...\n\nTips:\n• Use notes for timestamps, lyrics, or discussion points\n• Ctrl/Cmd + S to save quickly'
-          }),
-          React.createElement('div', { className: 'notes-actions' },
-            React.createElement('span', { className: 'notes-hint' }, hasChanges ? 'Unsaved changes' : 'All changes saved'),
-            React.createElement('button', { 
-              className: 'btn sm primary', 
-              onClick: handleSave,
-              disabled: !hasChanges || saving
-            }, saving ? 'Saving...' : 'Save Notes')
-          )
-        )
-      : React.createElement('div', { className: 'notes-readonly' },
-          notes 
-            ? React.createElement('pre', { className: 'notes-content' }, notes)
-            : React.createElement('p', { className: 'notes-empty-text' }, 'No notes for this video')
-        )
+    React.createElement(React.Fragment, null,
+      React.createElement('textarea', {
+        className: 'notes-textarea',
+        value: notes,
+        onChange: handleChange,
+        onKeyDown: handleKeyDown,
+        placeholder: 'Add notes for this video...\n\nTips:\n• Use notes for timestamps, lyrics, or discussion points\n• Ctrl/Cmd + S to save quickly'
+      }),
+      React.createElement('div', { className: 'notes-actions' },
+        React.createElement('span', { className: 'notes-hint' }, hasChanges ? 'Unsaved changes' : (notes ? 'All changes saved' : '')),
+        React.createElement('button', { 
+          className: 'btn sm primary', 
+          onClick: handleSave,
+          disabled: !hasChanges || saving
+        }, saving ? 'Saving...' : 'Save Notes')
+      )
+    )
   );
 }
 
@@ -3044,7 +3050,7 @@ function Room(props) {
   var setLoop = _loop[1];
   
   // Notes panel (right side panel for current video notes)
-  var _notesPanelOpen = useState(window.innerWidth > 1024);
+  var _notesPanelOpen = useState(false);
   var notesPanelOpen = _notesPanelOpen[0];
   var setNotesPanelOpen = _notesPanelOpen[1];
   
@@ -3372,6 +3378,21 @@ function Room(props) {
                     if (duration > 0 && currentTime >= duration - 1) {
                       console.log('>>> Ignoring server PLAY - video has ended');
                       shouldApplyState = false;
+                    }
+                  }
+                  // If we are currently paused (state 2) and server says play,
+                  // only apply if the server time is significantly different (someone seeked)
+                  // or if we just joined (hasInitialVideoSync is false)
+                  else if (playerState === 2 && hasInitialVideoSync.current) {
+                    var ourTime = globalYTPlayer.player.getCurrentTime() || 0;
+                    var serverTimeDiff = Math.abs(serverTime - ourTime);
+                    // If server time is within 5 seconds of our position, it's likely stale
+                    // A real play command would have time progressing or a seek
+                    if (serverTimeDiff < 5) {
+                      console.log('>>> Ignoring server PLAY - local is paused and server time is stale (diff:', serverTimeDiff.toFixed(1), 's)');
+                      shouldApplyState = false;
+                      // Broadcast our paused state to correct the server
+                      broadcastState(currentVideoRef.current, 'paused', ourTime);
                     }
                   }
                 } catch (e) {}
@@ -4008,12 +4029,13 @@ function Room(props) {
     });
   }
 
-  function updateVideoNotes(videoId, notes) {
+  function updateVideoNotes(videoId, notes, editorName) {
     if (!activePlaylist) return;
-    api.playlists.updateVideo(activePlaylist.id, videoId, { notes: notes }).then(function() {
+    api.playlists.updateVideo(activePlaylist.id, videoId, { notes: notes, notesUpdatedBy: editorName }).then(function() {
+      var now = new Date().toISOString();
       var updated = Object.assign({}, activePlaylist, { 
         videos: (activePlaylist.videos || []).map(function(v) { 
-          return v.id === videoId ? Object.assign({}, v, { notes: notes }) : v; 
+          return v.id === videoId ? Object.assign({}, v, { notes: notes, notesUpdatedBy: editorName, notesUpdatedAt: now }) : v; 
         }) 
       });
       setPlaylists(playlists.map(function(p) { return p.id === activePlaylist.id ? updated : p; }));
@@ -4294,7 +4316,8 @@ function Room(props) {
               ? React.createElement(VideoNotesEditor, {
                   video: currentVideo,
                   onSave: updateVideoNotes,
-                  isOwner: isOwner
+                  isOwner: isOwner,
+                  displayName: displayName
                 })
               : React.createElement('div', { className: 'notes-empty' }, 'Select a video to view or edit notes')
           )
@@ -4444,7 +4467,8 @@ function Room(props) {
           ? React.createElement(VideoNotesEditor, {
               video: currentVideo,
               onSave: updateVideoNotes,
-              isOwner: isOwner
+              isOwner: isOwner,
+              displayName: displayName
             })
           : React.createElement('div', { className: 'notes-empty' }, 'Select a video to view or edit notes')
       )
