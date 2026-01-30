@@ -53,7 +53,8 @@ export const handler = async (event) => {
 
       const rooms = await sql`
         SELECT r.id, r.name, r.description, r.is_public, r.created_at,
-               (SELECT COUNT(*) FROM playlists WHERE room_id = r.id) as playlist_count
+               (SELECT COUNT(*) FROM playlists WHERE room_id = r.id) as playlist_count,
+               (SELECT COUNT(*) FROM room_visitors WHERE room_id = r.id AND last_seen > NOW() - INTERVAL '60 seconds') as online_count
         FROM rooms r
         WHERE r.owner_id = ${user.id}
         ORDER BY r.created_at DESC
@@ -62,7 +63,7 @@ export const handler = async (event) => {
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({ rooms: rooms.map(r => ({ ...r, ownerId: user.id })) })
+        body: JSON.stringify({ rooms: rooms.map(r => ({ ...r, ownerId: user.id, onlineCount: parseInt(r.online_count) || 0 })) })
       };
     }
 
@@ -75,7 +76,7 @@ export const handler = async (event) => {
       const visitedRooms = await sql`
         SELECT DISTINCT r.id, r.name, r.owner_id, u.display_name as owner_name,
                rv.last_seen as last_visited,
-               (SELECT COUNT(*) FROM room_visitors WHERE room_id = r.id AND status = 'online' AND last_seen > NOW() - INTERVAL '10 seconds') as online_count
+               (SELECT COUNT(*) FROM room_visitors WHERE room_id = r.id AND last_seen > NOW() - INTERVAL '60 seconds') as online_count
         FROM room_visitors rv
         JOIN rooms r ON rv.room_id = r.id
         JOIN users u ON r.owner_id = u.id
@@ -95,7 +96,7 @@ export const handler = async (event) => {
             ownerId: r.owner_id,
             ownerName: r.owner_name,
             lastVisited: r.last_visited,
-            onlineCount: r.online_count
+            onlineCount: parseInt(r.online_count) || 0
           }))
         })
       };

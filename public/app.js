@@ -2970,6 +2970,10 @@ function HomePage(props) {
                 editingRoom === room.id 
                   ? React.createElement('input', { type: 'text', value: editName, onChange: function(e) { setEditName(e.target.value); }, onBlur: function() { renameRoom(room.id); }, onKeyDown: function(e) { if (e.key === 'Enter') renameRoom(room.id); if (e.key === 'Escape') setEditingRoom(null); }, autoFocus: true, className: 'room-edit-input' })
                   : React.createElement('h3', null, room.name),
+                React.createElement('div', { className: 'room-meta' },
+                  React.createElement('span', { className: 'room-owner' }, 'Owner'),
+                  room.onlineCount > 0 && React.createElement('span', { className: 'online-badge' }, room.onlineCount + ' online')
+                ),
                 React.createElement('div', { className: 'room-card-actions' },
                   React.createElement('button', { className: 'btn primary', onClick: function() { props.onEnterRoom(room); } }, React.createElement(Icon, { name: 'enter', size: 'sm' }), ' Enter'),
                   React.createElement('button', { className: 'icon-btn', onClick: function() { copyShareLink(room.id); }, title: 'Share' }, React.createElement(Icon, { name: 'share', size: 'sm' })),
