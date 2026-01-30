@@ -357,7 +357,8 @@ export const handler = async (event) => {
                        'position', v.position,
                        'notes', v.notes,
                        'notesUpdatedBy', v.notes_updated_by,
-                       'notesUpdatedAt', v.notes_updated_at
+                       'notesUpdatedAt', v.notes_updated_at,
+                       'notesHidden', COALESCE(v.notes_hidden, false)
                      ) ORDER BY v.position
                    ) FILTER (WHERE v.id IS NOT NULL),
                    '[]'
@@ -381,7 +382,8 @@ export const handler = async (event) => {
                        'position', v.position,
                        'notes', v.notes,
                        'notesUpdatedBy', v.notes_updated_by,
-                       'notesUpdatedAt', v.notes_updated_at
+                       'notesUpdatedAt', v.notes_updated_at,
+                       'notesHidden', COALESCE(v.notes_hidden, false)
                      ) ORDER BY v.position
                    ) FILTER (WHERE v.id IS NOT NULL),
                    '[]'

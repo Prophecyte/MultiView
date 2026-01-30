@@ -1538,11 +1538,26 @@ function VideoNotesEditor(props) {
   
   // Track the last known video notes to detect external changes
   var lastKnownNotes = useRef(video ? (video.notes || '') : '');
+  var lastVideoId = useRef(video ? video.id : null);
+  
+  // Check if notes can be saved (needs valid database UUID)
+  var canSave = video && video.id && video.id.length > 30; // UUIDs are 36 chars
   
   // Update notes when video changes OR when video.notes is updated from sync
   useEffect(function() {
     if (video) {
       var videoNotes = video.notes || '';
+      var videoId = video.id;
+      
+      // If video changed entirely, reset
+      if (videoId !== lastVideoId.current) {
+        setNotes(videoNotes);
+        lastKnownNotes.current = videoNotes;
+        lastVideoId.current = videoId;
+        setHasChanges(false);
+        return;
+      }
+      
       // Only update if the video notes changed externally (from sync)
       // Don't update if user is currently editing (hasChanges)
       if (videoNotes !== lastKnownNotes.current && !hasChanges) {
@@ -1559,7 +1574,7 @@ function VideoNotesEditor(props) {
   }
   
   function handleSave() {
-    if (!video || !hasChanges) return;
+    if (!video || !hasChanges || !canSave) return;
     setSaving(true);
     onSave(video.id, notes, displayName);
     // Update lastKnownNotes to the new value we're saving
@@ -1588,6 +1603,27 @@ function VideoNotesEditor(props) {
     return React.createElement('div', { className: 'notes-empty' }, 'Select a video to view notes');
   }
   
+  // Check if notes are hidden from this user (non-owner viewing hidden notes)
+  if (video.notesHidden && !isOwner) {
+    return React.createElement('div', { className: 'notes-empty' }, 
+      React.createElement('p', null, '🔒 Notes are hidden'),
+      React.createElement('p', { className: 'notes-hint' }, 'The room owner has hidden notes for this video')
+    );
+  }
+  
+  // Check if video is not in playlist (can't save notes)
+  if (!canSave) {
+    return React.createElement('div', { className: 'video-notes-editor' },
+      React.createElement('div', { className: 'notes-video-info' },
+        React.createElement('span', { className: 'notes-video-title' }, video.title || video.url)
+      ),
+      React.createElement('div', { className: 'notes-empty' },
+        React.createElement('p', null, '📝 Notes unavailable'),
+        React.createElement('p', { className: 'notes-hint' }, 'This video is not in a playlist. Add it to a playlist to enable notes.')
+      )
+    );
+  }
+  
   var lastEditInfo = video.notesUpdatedBy 
     ? 'Last edited by ' + video.notesUpdatedBy + (video.notesUpdatedAt ? ' on ' + formatDate(video.notesUpdatedAt) : '')
     : null;
@@ -1610,7 +1646,7 @@ function VideoNotesEditor(props) {
         React.createElement('button', { 
           className: 'btn sm primary', 
           onClick: handleSave,
-          disabled: !hasChanges || saving
+          disabled: !hasChanges || saving || !canSave
         }, saving ? 'Saving...' : 'Save Notes')
       )
     )
@@ -3065,10 +3101,8 @@ function Room(props) {
   var notesPanelOpen = _notesPanelOpen[0];
   var setNotesPanelOpen = _notesPanelOpen[1];
   
-  // Hide notes from non-owners (room setting)
-  var _hideNotes = useState(false);
-  var hideNotes = _hideNotes[0];
-  var setHideNotes = _hideNotes[1];
+  // Note: Per-video notes hiding is now stored in each video object (video.notesHidden)
+  // No room-level hideNotes state needed
   
   // Sort mode for queue (null = manual, 'alpha' = alphabetical A-Z, 'alpha-desc' = Z-A)
   var _queueSortMode = useState(null);
@@ -3295,20 +3329,51 @@ function Room(props) {
             // Sync notes to currentVideo if it exists in this playlist
             // This allows other users to see notes changes in real-time
             if (currentVideoRef.current && updated.videos) {
-              var freshVideo = updated.videos.find(function(v) { return v.id === currentVideoRef.current.id; });
+              // Try to find video by ID first, then by URL
+              var freshVideo = null;
+              if (currentVideoRef.current.id && currentVideoRef.current.id.length > 30) {
+                freshVideo = updated.videos.find(function(v) { return v.id === currentVideoRef.current.id; });
+              }
+              // Also try by URL if not found by ID
+              if (!freshVideo && currentVideoRef.current.url) {
+                freshVideo = updated.videos.find(function(v) { return v.url === currentVideoRef.current.url; });
+                // Also try by video ID match
+                if (!freshVideo) {
+                  var currentParsed = parseVideoUrl(currentVideoRef.current.url);
+                  if (currentParsed) {
+                    freshVideo = updated.videos.find(function(v) {
+                      var vParsed = parseVideoUrl(v.url);
+                      return vParsed && vParsed.id === currentParsed.id;
+                    });
+                  }
+                }
+              }
+              
               if (freshVideo) {
-                var currentNotes = currentVideoRef.current.notes || '';
-                var freshNotes = freshVideo.notes || '';
-                var currentUpdatedBy = currentVideoRef.current.notesUpdatedBy || '';
-                var freshUpdatedBy = freshVideo.notesUpdatedBy || '';
-                // Only update if notes content or editor changed
-                if (currentNotes !== freshNotes || currentUpdatedBy !== freshUpdatedBy) {
-                  console.log('>>> Syncing notes from another user:', freshUpdatedBy);
-                  setCurrentVideo(Object.assign({}, currentVideoRef.current, { 
-                    notes: freshVideo.notes,
-                    notesUpdatedBy: freshVideo.notesUpdatedBy,
-                    notesUpdatedAt: freshVideo.notesUpdatedAt
-                  }));
+                var needsUpdate = false;
+                
+                // Check if we need to update the whole video (was missing DB ID)
+                if (!currentVideoRef.current.id || currentVideoRef.current.id.length < 30) {
+                  console.log('>>> Updating currentVideo with full DB object');
+                  setCurrentVideo(freshVideo);
+                  needsUpdate = true;
+                }
+                // Or just update notes if they changed
+                else {
+                  var currentNotes = currentVideoRef.current.notes || '';
+                  var freshNotes = freshVideo.notes || '';
+                  var currentUpdatedBy = currentVideoRef.current.notesUpdatedBy || '';
+                  var freshUpdatedBy = freshVideo.notesUpdatedBy || '';
+                  // Only update if notes content or editor changed
+                  if (currentNotes !== freshNotes || currentUpdatedBy !== freshUpdatedBy) {
+                    console.log('>>> Syncing notes from another user:', freshUpdatedBy);
+                    setCurrentVideo(Object.assign({}, currentVideoRef.current, { 
+                      notes: freshVideo.notes,
+                      notesUpdatedBy: freshVideo.notesUpdatedBy,
+                      notesUpdatedAt: freshVideo.notesUpdatedAt,
+                      notesHidden: freshVideo.notesHidden
+                    }));
+                  }
                 }
               }
             }
@@ -3346,9 +3411,6 @@ function Room(props) {
         if (data.room.loop !== undefined && data.room.loop !== loop) {
           setLoop(data.room.loop);
         }
-        if (data.room.hideNotes !== undefined && data.room.hideNotes !== hideNotes) {
-          setHideNotes(data.room.hideNotes);
-        }
         
         // Sync active playlist from server (only if we don't have one selected locally)
         // This ensures new users joining see the same playlist the room is using
@@ -3382,11 +3444,51 @@ function Room(props) {
             currentVideoIdRef.current = serverVideoId;
             lastSyncedState.current = serverState;
             lastSyncedTime.current = serverTime;
-            setCurrentVideo({ 
-              id: serverVideoId, 
-              title: data.room.currentVideoTitle || serverUrl, 
-              url: serverUrl 
-            });
+            
+            // Try to find the actual video object from playlists to get database UUID
+            // Match by URL or by extracted video ID (handles different YouTube URL formats)
+            var foundVideo = null;
+            if (data.playlists) {
+              for (var pi = 0; pi < data.playlists.length && !foundVideo; pi++) {
+                var pVideos = data.playlists[pi].videos || [];
+                for (var vi = 0; vi < pVideos.length; vi++) {
+                  var pv = pVideos[vi];
+                  // Try exact URL match first
+                  if (pv.url === serverUrl) {
+                    foundVideo = pv;
+                    break;
+                  }
+                  // Also try matching by extracted video ID (handles different URL formats)
+                  var pvParsed = parseVideoUrl(pv.url);
+                  if (pvParsed && pvParsed.id === serverVideoId) {
+                    foundVideo = pv;
+                    break;
+                  }
+                }
+              }
+            }
+            
+            if (foundVideo) {
+              console.log('>>> Found video in playlist with DB id:', foundVideo.id);
+              setCurrentVideo(foundVideo);
+              // Update index if this video is in active playlist
+              if (activePlaylistRef.current && activePlaylistRef.current.videos) {
+                var foundIdx = activePlaylistRef.current.videos.findIndex(function(v) { return v.id === foundVideo.id; });
+                if (foundIdx >= 0) {
+                  setCurrentIndex(foundIdx);
+                  currentIndexRef.current = foundIdx;
+                }
+              }
+            } else {
+              console.log('>>> Video not found in playlists, creating temporary (notes disabled)');
+              // Fallback: create temporary video object (notes won't work but playback will)
+              setCurrentVideo({ 
+                id: null, // No DB id available - notes will be disabled
+                youtubeId: serverVideoId,
+                title: data.room.currentVideoTitle || serverUrl, 
+                url: serverUrl 
+              });
+            }
             setPlaybackState(serverState);
             setPlaybackTime(serverTime);
           } else {
@@ -3527,11 +3629,15 @@ function Room(props) {
     // Handle visibility changes - sync when tab becomes visible
     function handleVisibilityChange() {
       if (document.visibilityState === 'visible') {
-        console.log('Tab visible - syncing from server...');
+        console.log('Tab visible - forcing sync from server...');
         api.presence.heartbeat(room.id, 'online').catch(console.error);
         
-        // Just sync from server - don't broadcast our potentially stale state
-        // This ensures we always get the latest state from the room
+        // Reset sync tracking refs to force accepting server state
+        // This ensures we always get the latest state after being away
+        lastSyncedState.current = null;
+        lastSyncedTime.current = -1;
+        
+        // Sync from server
         syncRoomState();
       }
     }
@@ -3540,7 +3646,9 @@ function Room(props) {
     window.addEventListener('focus', function() {
       api.presence.heartbeat(room.id, 'online').catch(console.error);
       
-      // Just sync from server on focus too
+      // Also force sync on focus
+      lastSyncedState.current = null;
+      lastSyncedTime.current = -1;
       syncRoomState();
     });
     
@@ -3989,6 +4097,15 @@ function Room(props) {
 
   function updateVideoNotes(videoId, notes, editorName) {
     if (!activePlaylist) return;
+    
+    // Validate that videoId is a valid UUID (not a YouTube video ID)
+    // UUIDs are 36 characters with dashes, YouTube IDs are ~11 characters
+    if (!videoId || videoId.length < 30) {
+      console.error('>>> Invalid video ID for notes (not a UUID):', videoId);
+      showNotif('Cannot save notes - video not in playlist');
+      return;
+    }
+    
     console.log('>>> Saving notes for video:', videoId, 'by:', editorName);
     api.playlists.updateVideo(activePlaylist.id, videoId, { notes: notes, notesUpdatedBy: editorName }).then(function() {
       console.log('>>> Notes saved successfully');
@@ -4015,11 +4132,30 @@ function Room(props) {
     });
   }
 
-  function toggleHideNotes() {
-    var newHideNotes = !hideNotes;
-    setHideNotes(newHideNotes);
-    api.rooms.updateOptions(room.id, { hideNotes: newHideNotes }).then(function() {
-      showNotif(newHideNotes ? 'Notes hidden from guests' : 'Notes visible to all');
+  function toggleVideoNotesHidden() {
+    if (!currentVideo || !currentVideo.id || !activePlaylist) {
+      showNotif('No video selected');
+      return;
+    }
+    var newHidden = !currentVideo.notesHidden;
+    api.playlists.updateVideo(activePlaylist.id, currentVideo.id, { notesHidden: newHidden }).then(function() {
+      // Update local state
+      var updatedVideo = Object.assign({}, currentVideo, { notesHidden: newHidden });
+      setCurrentVideo(updatedVideo);
+      
+      // Update in playlist
+      var updated = Object.assign({}, activePlaylist, { 
+        videos: (activePlaylist.videos || []).map(function(v) { 
+          return v.id === currentVideo.id ? updatedVideo : v; 
+        }) 
+      });
+      setPlaylists(playlists.map(function(p) { return p.id === activePlaylist.id ? updated : p; }));
+      setActivePlaylist(updated);
+      
+      showNotif(newHidden ? 'Notes hidden from guests for this video' : 'Notes visible to all for this video');
+    }).catch(function(err) {
+      console.error('Failed to toggle notes visibility:', err);
+      showNotif('Failed to update notes visibility');
     });
   }
 
@@ -4246,10 +4382,10 @@ function Room(props) {
               })
             ),
             React.createElement('button', { className: 'btn sm', onClick: playNext, disabled: !activePlaylist || currentIndex >= ((activePlaylist && activePlaylist.videos || []).length) - 1 }, 'Next ', React.createElement(Icon, { name: 'next', size: 'sm' })),
-            // Notes toggle button (show only if not hidden from non-owners OR if owner)
+            // Notes toggle button - always visible so owner can toggle and users can see notes exist
             // Desktop: toggles notes panel, Mobile: opens slide-up panel
-            (isOwner || !hideNotes) && React.createElement('button', { 
-              className: 'icon-btn toggle notes-toggle' + (notesPanelOpen || mobileNotesOpen ? ' active' : ''), 
+            React.createElement('button', { 
+              className: 'icon-btn toggle notes-toggle' + (notesPanelOpen || mobileNotesOpen ? ' active' : '') + (currentVideo && currentVideo.notesHidden && !isOwner ? ' hidden-indicator' : ''), 
               onClick: function() { 
                 // Check if mobile (based on viewport width)
                 if (window.innerWidth <= 768) {
@@ -4260,22 +4396,22 @@ function Room(props) {
                   setNotesPanelOpen(!notesPanelOpen); 
                 }
               },
-              title: 'Video Notes'
+              title: currentVideo && currentVideo.notesHidden && !isOwner ? 'Notes (hidden by owner)' : 'Video Notes'
             }, React.createElement(Icon, { name: 'fileText', size: 'sm' }))
           ),
           React.createElement(ConnectedUsers, { users: connectedUsers, isHost: isOwner, currentUserId: visitorId, roomId: room.id, onKick: handleKick, onRename: handleRenameUser, onColorChange: handleColorChange })
         ),
         
-        // Notes Panel (collapsible right panel)
-        (isOwner || !hideNotes) && React.createElement('aside', { className: 'notes-panel' + (notesPanelOpen ? '' : ' closed') },
+        // Notes Panel (collapsible right panel) - always render, content changes based on visibility
+        React.createElement('aside', { className: 'notes-panel' + (notesPanelOpen ? '' : ' closed') },
           React.createElement('div', { className: 'notes-panel-header' },
             React.createElement('h3', null, React.createElement(Icon, { name: 'fileText', size: 'sm' }), ' Notes'),
             React.createElement('div', { className: 'notes-header-actions' },
-              isOwner && React.createElement('button', {
-                className: 'icon-btn sm' + (hideNotes ? ' active' : ''),
-                onClick: toggleHideNotes,
-                title: hideNotes ? 'Notes hidden from guests (click to show)' : 'Notes visible to all (click to hide)'
-              }, React.createElement(Icon, { name: hideNotes ? 'eyeOff' : 'eye', size: 'sm' })),
+              isOwner && currentVideo && currentVideo.id && React.createElement('button', {
+                className: 'icon-btn sm' + (currentVideo.notesHidden ? ' active' : ''),
+                onClick: toggleVideoNotesHidden,
+                title: currentVideo.notesHidden ? 'Notes hidden from guests (click to show)' : 'Notes visible to all (click to hide)'
+              }, React.createElement(Icon, { name: currentVideo.notesHidden ? 'eyeOff' : 'eye', size: 'sm' })),
               React.createElement('button', { 
                 className: 'icon-btn sm', 
                 onClick: function() { setNotesPanelOpen(false); }
@@ -4420,16 +4556,16 @@ function Room(props) {
       )
     ),
     
-    // Mobile Notes slide-up panel (only show if notes not hidden or if owner)
-    (isOwner || !hideNotes) && React.createElement('div', { className: 'slide-panel notes-panel-mobile' + (mobileNotesOpen ? ' open' : '') },
+    // Mobile Notes slide-up panel - always render, content changes based on visibility
+    React.createElement('div', { className: 'slide-panel notes-panel-mobile' + (mobileNotesOpen ? ' open' : '') },
       React.createElement('div', { className: 'slide-panel-header' },
         React.createElement('h3', null, '📝 Video Notes'),
         React.createElement('div', { className: 'notes-header-actions' },
-          isOwner && React.createElement('button', {
-            className: 'icon-btn sm' + (hideNotes ? ' active' : ''),
-            onClick: toggleHideNotes,
-            title: hideNotes ? 'Notes hidden from guests' : 'Notes visible to all'
-          }, React.createElement(Icon, { name: hideNotes ? 'eyeOff' : 'eye', size: 'sm' })),
+          isOwner && currentVideo && currentVideo.id && React.createElement('button', {
+            className: 'icon-btn sm' + (currentVideo.notesHidden ? ' active' : ''),
+            onClick: toggleVideoNotesHidden,
+            title: currentVideo.notesHidden ? 'Notes hidden from guests' : 'Notes visible to all'
+          }, React.createElement(Icon, { name: currentVideo.notesHidden ? 'eyeOff' : 'eye', size: 'sm' })),
           React.createElement('button', { className: 'panel-close-btn', onClick: function() { setMobileNotesOpen(false); } }, React.createElement(Icon, { name: 'x', size: 'sm' }))
         )
       ),

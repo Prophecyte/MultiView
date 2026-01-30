@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS videos (
   notes TEXT, -- Optional notes for the video
   notes_updated_by VARCHAR(255), -- Who last edited the notes (display name)
   notes_updated_at TIMESTAMP WITH TIME ZONE, -- When notes were last edited
+  notes_hidden BOOLEAN DEFAULT false, -- Owner can hide notes for this video from guests
   added_by UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

@@ -277,10 +277,10 @@ export const handler = async (event) => {
       return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
     }
 
-    // PUT /playlists/:id/videos/:videoId - Update video (rename or update notes)
+    // PUT /playlists/:id/videos/:videoId - Update video (rename, update notes, or toggle notes visibility)
     if (event.httpMethod === 'PUT' && videoMatch) {
       const videoId = videoMatch[1];
-      const { title, notes, notesUpdatedBy } = body;
+      const { title, notes, notesUpdatedBy, notesHidden } = body;
       
       if (title !== undefined) {
         await sql`UPDATE videos SET title = ${title} WHERE id = ${videoId}::uuid AND playlist_id = ${playlistId}::uuid`;
@@ -292,6 +292,10 @@ export const handler = async (event) => {
           notes_updated_by = ${notesUpdatedBy || null},
           notes_updated_at = NOW()
         WHERE id = ${videoId}::uuid AND playlist_id = ${playlistId}::uuid`;
+      }
+      
+      if (notesHidden !== undefined) {
+        await sql`UPDATE videos SET notes_hidden = ${notesHidden} WHERE id = ${videoId}::uuid AND playlist_id = ${playlistId}::uuid`;
       }
       
       return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
