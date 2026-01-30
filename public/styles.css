@@ -4183,6 +4183,14 @@ body {
   margin-left: 8px;
 }
 
+.notes-toggle.hidden-indicator {
+  opacity: 0.5;
+}
+
+.notes-toggle.hidden-indicator:hover {
+  opacity: 0.8;
+}
+
 /* ============================================
    Queue Sort Styles
    ============================================ */

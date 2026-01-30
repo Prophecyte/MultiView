@@ -1536,37 +1536,39 @@ function VideoNotesEditor(props) {
   var saving = _saving[0];
   var setSaving = _saving[1];
   
-  // Track the last known video notes to detect external changes
-  var lastKnownNotes = useRef(video ? (video.notes || '') : '');
+  // Track the last video ID to detect when we switch videos
   var lastVideoId = useRef(video ? video.id : null);
   
   // Check if notes can be saved (needs valid database UUID)
   var canSave = video && video.id && video.id.length > 30; // UUIDs are 36 chars
   
+  // Normalize notes for comparison (null, undefined, '' all become '')
+  var videoNotes = (video && video.notes) ? video.notes : '';
+  var videoNotesUpdatedBy = (video && video.notesUpdatedBy) ? video.notesUpdatedBy : '';
+  
   // Update notes when video changes OR when video.notes is updated from sync
   useEffect(function() {
-    if (video) {
-      var videoNotes = video.notes || '';
-      var videoId = video.id;
-      
-      // If video changed entirely, reset
-      if (videoId !== lastVideoId.current) {
-        setNotes(videoNotes);
-        lastKnownNotes.current = videoNotes;
-        lastVideoId.current = videoId;
-        setHasChanges(false);
-        return;
-      }
-      
-      // Only update if the video notes changed externally (from sync)
-      // Don't update if user is currently editing (hasChanges)
-      if (videoNotes !== lastKnownNotes.current && !hasChanges) {
-        console.log('>>> Notes synced from server:', video.notesUpdatedBy);
-        setNotes(videoNotes);
-        lastKnownNotes.current = videoNotes;
-      }
+    if (!video) return;
+    
+    var currentVideoId = video.id || video.url;
+    var currentNotes = (video.notes || '');
+    
+    // If video changed entirely, reset everything
+    if (currentVideoId !== lastVideoId.current) {
+      console.log('>>> VideoNotesEditor: Video changed, resetting notes');
+      setNotes(currentNotes);
+      lastVideoId.current = currentVideoId;
+      setHasChanges(false);
+      return;
     }
-  }, [video ? video.id : null, video ? video.notes : null, video ? video.notesUpdatedBy : null]);
+    
+    // Video is the same - check if notes changed externally (from sync)
+    // Only update if user is NOT currently editing (hasChanges)
+    if (!hasChanges && notes !== currentNotes) {
+      console.log('>>> VideoNotesEditor: Notes synced from server');
+      setNotes(currentNotes);
+    }
+  }, [video ? (video.id || video.url) : null, videoNotes, videoNotesUpdatedBy]);
   
   function handleChange(e) {
     setNotes(e.target.value);
@@ -1577,8 +1579,6 @@ function VideoNotesEditor(props) {
     if (!video || !hasChanges || !canSave) return;
     setSaving(true);
     onSave(video.id, notes, displayName);
-    // Update lastKnownNotes to the new value we're saving
-    lastKnownNotes.current = notes;
     setTimeout(function() {
       setSaving(false);
       setHasChanges(false);
@@ -3319,64 +3319,74 @@ function Room(props) {
           setIsPlaylistOwner(data.isPlaylistOwner);
         }
         
+        // Sync notes to currentVideo from ANY playlist (not just active)
+        // This ensures notes sync even when user hasn't selected a playlist
+        if (currentVideoRef.current && data.playlists.length > 0) {
+          var freshVideo = null;
+          
+          // Search all playlists for the current video
+          for (var pIdx = 0; pIdx < data.playlists.length && !freshVideo; pIdx++) {
+            var pVideos = data.playlists[pIdx].videos || [];
+            
+            // Try to find by ID first
+            if (currentVideoRef.current.id && currentVideoRef.current.id.length > 30) {
+              freshVideo = pVideos.find(function(v) { return v.id === currentVideoRef.current.id; });
+            }
+            
+            // Try by URL
+            if (!freshVideo && currentVideoRef.current.url) {
+              freshVideo = pVideos.find(function(v) { return v.url === currentVideoRef.current.url; });
+            }
+            
+            // Try by video ID match
+            if (!freshVideo && currentVideoRef.current.url) {
+              var currentParsed = parseVideoUrl(currentVideoRef.current.url);
+              if (currentParsed) {
+                freshVideo = pVideos.find(function(v) {
+                  var vParsed = parseVideoUrl(v.url);
+                  return vParsed && vParsed.id === currentParsed.id;
+                });
+              }
+            }
+          }
+          
+          if (freshVideo) {
+            // Check if we need to update currentVideo
+            var needsUpdate = false;
+            
+            // Missing DB ID - update with full object
+            if (!currentVideoRef.current.id || currentVideoRef.current.id.length < 30) {
+              console.log('>>> Updating currentVideo with full DB object');
+              setCurrentVideo(freshVideo);
+              needsUpdate = true;
+            } else {
+              // Check for notes/visibility changes
+              var currentNotes = currentVideoRef.current.notes || '';
+              var freshNotes = freshVideo.notes || '';
+              var currentUpdatedBy = currentVideoRef.current.notesUpdatedBy || '';
+              var freshUpdatedBy = freshVideo.notesUpdatedBy || '';
+              var currentHidden = currentVideoRef.current.notesHidden || false;
+              var freshHidden = freshVideo.notesHidden || false;
+              
+              if (currentNotes !== freshNotes || currentUpdatedBy !== freshUpdatedBy || currentHidden !== freshHidden) {
+                console.log('>>> Syncing notes - content changed:', currentNotes !== freshNotes, 'editor:', currentUpdatedBy, '->', freshUpdatedBy, 'hidden:', currentHidden, '->', freshHidden);
+                setCurrentVideo(Object.assign({}, currentVideoRef.current, { 
+                  notes: freshVideo.notes,
+                  notesUpdatedBy: freshVideo.notesUpdatedBy,
+                  notesUpdatedAt: freshVideo.notesUpdatedAt,
+                  notesHidden: freshVideo.notesHidden
+                }));
+              }
+            }
+          }
+        }
+        
         // Use ref to reliably track which playlist should be active
         var targetId = activePlaylistIdRef.current;
         if (targetId) {
           var updated = data.playlists.find(function(p) { return p.id === targetId; });
           if (updated) {
             setActivePlaylist(updated);
-            
-            // Sync notes to currentVideo if it exists in this playlist
-            // This allows other users to see notes changes in real-time
-            if (currentVideoRef.current && updated.videos) {
-              // Try to find video by ID first, then by URL
-              var freshVideo = null;
-              if (currentVideoRef.current.id && currentVideoRef.current.id.length > 30) {
-                freshVideo = updated.videos.find(function(v) { return v.id === currentVideoRef.current.id; });
-              }
-              // Also try by URL if not found by ID
-              if (!freshVideo && currentVideoRef.current.url) {
-                freshVideo = updated.videos.find(function(v) { return v.url === currentVideoRef.current.url; });
-                // Also try by video ID match
-                if (!freshVideo) {
-                  var currentParsed = parseVideoUrl(currentVideoRef.current.url);
-                  if (currentParsed) {
-                    freshVideo = updated.videos.find(function(v) {
-                      var vParsed = parseVideoUrl(v.url);
-                      return vParsed && vParsed.id === currentParsed.id;
-                    });
-                  }
-                }
-              }
-              
-              if (freshVideo) {
-                var needsUpdate = false;
-                
-                // Check if we need to update the whole video (was missing DB ID)
-                if (!currentVideoRef.current.id || currentVideoRef.current.id.length < 30) {
-                  console.log('>>> Updating currentVideo with full DB object');
-                  setCurrentVideo(freshVideo);
-                  needsUpdate = true;
-                }
-                // Or just update notes if they changed
-                else {
-                  var currentNotes = currentVideoRef.current.notes || '';
-                  var freshNotes = freshVideo.notes || '';
-                  var currentUpdatedBy = currentVideoRef.current.notesUpdatedBy || '';
-                  var freshUpdatedBy = freshVideo.notesUpdatedBy || '';
-                  // Only update if notes content or editor changed
-                  if (currentNotes !== freshNotes || currentUpdatedBy !== freshUpdatedBy) {
-                    console.log('>>> Syncing notes from another user:', freshUpdatedBy);
-                    setCurrentVideo(Object.assign({}, currentVideoRef.current, { 
-                      notes: freshVideo.notes,
-                      notesUpdatedBy: freshVideo.notesUpdatedBy,
-                      notesUpdatedAt: freshVideo.notesUpdatedAt,
-                      notesHidden: freshVideo.notesHidden
-                    }));
-                  }
-                }
-              }
-            }
           }
           // If playlist was deleted, clear the ref and selection
           else {
