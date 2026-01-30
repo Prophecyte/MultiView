@@ -814,20 +814,39 @@ function YouTubePlayer(props) {
             
             applyInitialState();
             
-            // Retry after delay to ensure state is applied (handles buffering)
-            setTimeout(function() {
-              if (!playerRef.current || !isReady.current) return;
+            // Multiple retries to handle buffering states
+            // Videos can get stuck in buffering (state 3) or unstarted (state -1)
+            var retryCount = 0;
+            var maxRetries = 5;
+            
+            function retryPlayback() {
+              retryCount++;
+              if (retryCount > maxRetries || !playerRef.current || !isReady.current) return;
+              
               var state = playerRef.current.getPlayerState();
-              if (latestState === 'playing' && state !== 1) {
-                console.log('>>> Retry initial PLAY (state was:', state, ')');
-                lastCommandTime.current = Date.now();
-                playerRef.current.playVideo();
-              } else if (latestState !== 'playing' && state !== 2) {
-                console.log('>>> Retry initial PAUSE (state was:', state, ')');
-                lastCommandTime.current = Date.now();
-                playerRef.current.pauseVideo();
+              console.log('>>> Playback check #' + retryCount + ' (state:', state, ', target:', latestState, ')');
+              
+              if (latestState === 'playing') {
+                // States: -1=unstarted, 0=ended, 1=playing, 2=paused, 3=buffering, 5=cued
+                if (state !== 1) {
+                  console.log('>>> Retry PLAY command');
+                  lastCommandTime.current = Date.now();
+                  playerRef.current.playVideo();
+                  // Continue retrying until we're playing or max retries
+                  setTimeout(retryPlayback, 1000);
+                }
+              } else {
+                if (state !== 2 && state !== -1) {
+                  console.log('>>> Retry PAUSE command');
+                  lastCommandTime.current = Date.now();
+                  playerRef.current.pauseVideo();
+                  setTimeout(retryPlayback, 1000);
+                }
               }
-            }, 500);
+            }
+            
+            // Start retry loop after initial delay
+            setTimeout(retryPlayback, 500);
             
             // Monitor for seeks and video end
             // Using setTimeout chain for better background tab support
@@ -1054,6 +1073,9 @@ function YouTubePlayer(props) {
   useEffect(function() {
     if (!isReady.current || !playerRef.current) return;
     
+    var retryCount = 0;
+    var maxRetries = 5;
+    
     function applyState() {
       try {
         var currentState = playerRef.current.getPlayerState();
@@ -1075,52 +1097,53 @@ function YouTubePlayer(props) {
           lastCommandTime.current = Date.now();
           playerRef.current.playVideo();
           
-          // Retry play after a short delay if not playing yet
-          // But don't retry if video is at the end
-          if (currentState === 3 || currentState === -1 || currentState === 2) {
-            setTimeout(function() {
-              if (playerRef.current && playbackState === 'playing') {
-                var state = playerRef.current.getPlayerState();
-                if (state !== 1) {
-                  // Don't retry if video is at end
-                  if (state === 0) {
-                    var dur = playerRef.current.getDuration();
-                    var time = playerRef.current.getCurrentTime();
-                    if (dur > 0 && time >= dur - 2) {
-                      console.log('>>> Skipping retry - video at end');
-                      return;
-                    }
-                  }
-                  console.log('>>> Retry PLAY (state was:', state, ')');
-                  lastCommandTime.current = Date.now();
-                  playerRef.current.playVideo();
-                }
-              }
-            }, 500);
-          }
-        } else if (playbackState === 'paused' && currentState !== 2) {
+          // Schedule retry if still not playing
+          scheduleRetry();
+        } else if (playbackState === 'paused' && currentState !== 2 && currentState !== 0) {
           // Pause if not already paused (handles buffering state 3 as well)
+          // Don't try to pause ended videos (state 0)
           console.log('>>> Sending PAUSE command (current state:', currentState, ')');
           lastCommandTime.current = Date.now();
           playerRef.current.pauseVideo();
           
-          // Retry pause after a short delay if still buffering
-          if (currentState === 3 || currentState === -1) {
-            setTimeout(function() {
-              if (playerRef.current && playbackState === 'paused') {
-                var state = playerRef.current.getPlayerState();
-                if (state !== 2) {
-                  console.log('>>> Retry PAUSE (state was:', state, ')');
-                  lastCommandTime.current = Date.now();
-                  playerRef.current.pauseVideo();
-                }
-              }
-            }, 500);
-          }
+          // Schedule retry if still not paused
+          scheduleRetry();
         }
       } catch (e) {
         console.error('YT command error:', e);
       }
+    }
+    
+    function scheduleRetry() {
+      if (retryCount >= maxRetries) return;
+      
+      setTimeout(function() {
+        retryCount++;
+        if (!playerRef.current || !isReady.current) return;
+        
+        var state = playerRef.current.getPlayerState();
+        
+        if (playbackState === 'playing' && state !== 1) {
+          // Don't retry if video is at end
+          if (state === 0) {
+            var dur = playerRef.current.getDuration();
+            var time = playerRef.current.getCurrentTime();
+            if (dur > 0 && time >= dur - 2) {
+              console.log('>>> Skipping retry - video at end');
+              return;
+            }
+          }
+          console.log('>>> Retry #' + retryCount + ' PLAY (state was:', state, ')');
+          lastCommandTime.current = Date.now();
+          playerRef.current.playVideo();
+          scheduleRetry();
+        } else if (playbackState === 'paused' && state !== 2 && state !== 0) {
+          console.log('>>> Retry #' + retryCount + ' PAUSE (state was:', state, ')');
+          lastCommandTime.current = Date.now();
+          playerRef.current.pauseVideo();
+          scheduleRetry();
+        }
+      }, 800);
     }
     
     applyState();
@@ -3624,17 +3647,24 @@ function Room(props) {
       syncRoomState();
     }, SYNC_INTERVAL);
     
-    // Dedicated heartbeat interval (3 seconds) - survives browser throttling better
-    // This ensures users stay "online" even when tab is in background
-    var heartbeatInterval = setInterval(function() {
+    // Use Web Worker for heartbeat to avoid browser throttling in background tabs
+    // Regular setInterval gets throttled to ~1 minute in background, Worker doesn't
+    var heartbeatWorkerCode = 'setInterval(function(){postMessage("heartbeat")},3000)';
+    var heartbeatBlob = new Blob([heartbeatWorkerCode], { type: 'application/javascript' });
+    var heartbeatWorkerUrl = URL.createObjectURL(heartbeatBlob);
+    var heartbeatWorker = new Worker(heartbeatWorkerUrl);
+    
+    heartbeatWorker.onmessage = function() {
       api.presence.heartbeat(room.id, 'online').catch(console.error);
-      // Note: We no longer broadcast playback position here
-      // Only explicit user actions (play, pause, seek, change video) should broadcast
-      // This prevents sync conflicts when multiple users are in the room
-    }, 3000);
+    };
     
     // Also send immediate heartbeat
     api.presence.heartbeat(room.id, 'online').catch(console.error);
+    
+    // Backup regular interval for browsers that don't support workers well
+    var heartbeatInterval = setInterval(function() {
+      api.presence.heartbeat(room.id, 'online').catch(console.error);
+    }, 10000); // Less frequent as backup
     
     // Handle visibility changes - sync when tab becomes visible
     function handleVisibilityChange() {
@@ -3665,6 +3695,10 @@ function Room(props) {
     return function() {
       clearInterval(syncInterval.current);
       clearInterval(heartbeatInterval);
+      if (heartbeatWorker) {
+        heartbeatWorker.terminate();
+      }
+      URL.revokeObjectURL(heartbeatWorkerUrl);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       api.presence.leave(room.id).catch(console.error);
     };
