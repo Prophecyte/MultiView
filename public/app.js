@@ -3412,21 +3412,6 @@ function Room(props) {
                       shouldApplyState = false;
                     }
                   }
-                  // If we are currently paused (state 2) and server says play,
-                  // only apply if the server time is significantly different (someone seeked)
-                  // or if we just joined (hasInitialVideoSync is false)
-                  else if (playerState === 2 && hasInitialVideoSync.current) {
-                    var ourTime = globalYTPlayer.player.getCurrentTime() || 0;
-                    var serverTimeDiff = Math.abs(serverTime - ourTime);
-                    // If server time is within 5 seconds of our position, it's likely stale
-                    // A real play command would have time progressing or a seek
-                    if (serverTimeDiff < 5) {
-                      console.log('>>> Ignoring server PLAY - local is paused and server time is stale (diff:', serverTimeDiff.toFixed(1), 's)');
-                      shouldApplyState = false;
-                      // Broadcast our paused state to correct the server
-                      broadcastState(currentVideoRef.current, 'paused', ourTime);
-                    }
-                  }
                 } catch (e) {}
               }
               
@@ -3529,31 +3514,11 @@ function Room(props) {
     
     // Dedicated heartbeat interval (3 seconds) - survives browser throttling better
     // This ensures users stay "online" even when tab is in background
-    // Also periodically broadcast current playback position during playback
     var heartbeatInterval = setInterval(function() {
       api.presence.heartbeat(room.id, 'online').catch(console.error);
-      
-      // Periodically update server with current playback position while playing
-      // This keeps server in sync so new users join at the right position
-      if (!isInitialSync.current && globalYTPlayer.player && globalYTPlayer.isReady) {
-        try {
-          var state = globalYTPlayer.player.getPlayerState();
-          if (state === 1) { // Playing
-            var currentTime = globalYTPlayer.player.getCurrentTime();
-            if (currentTime > 0 && currentVideoRef.current) {
-              // Update server with current position (silent update, no state change)
-              api.rooms.updateSync(room.id, {
-                currentVideoUrl: currentVideoRef.current.url,
-                currentVideoTitle: currentVideoRef.current.title || currentVideoRef.current.url,
-                currentPlaylistId: activePlaylistIdRef.current,
-                playbackState: 'playing',
-                playbackTime: currentTime
-              }).catch(function() {}); // Ignore errors
-              lastSyncedTime.current = currentTime;
-            }
-          }
-        } catch (e) {}
-      }
+      // Note: We no longer broadcast playback position here
+      // Only explicit user actions (play, pause, seek, change video) should broadcast
+      // This prevents sync conflicts when multiple users are in the room
     }, 3000);
     
     // Also send immediate heartbeat
@@ -3562,31 +3527,11 @@ function Room(props) {
     // Handle visibility changes - sync when tab becomes visible
     function handleVisibilityChange() {
       if (document.visibilityState === 'visible') {
-        console.log('Tab visible - syncing...');
+        console.log('Tab visible - syncing from server...');
         api.presence.heartbeat(room.id, 'online').catch(console.error);
         
-        // If we were playing, update server with our current position first
-        // This prevents the sync from jumping us back to stale server time
-        if (globalYTPlayer.player && globalYTPlayer.isReady) {
-          try {
-            var state = globalYTPlayer.player.getPlayerState();
-            if (state === 1 || state === 3) { // Playing or buffering
-              var currentTime = globalYTPlayer.player.getCurrentTime();
-              if (currentTime > 0 && currentVideoRef.current) {
-                console.log('Tab visible - updating server with current position:', currentTime.toFixed(1));
-                lastSyncedTime.current = currentTime;
-                api.rooms.updateSync(room.id, {
-                  currentVideoUrl: currentVideoRef.current.url,
-                  currentVideoTitle: currentVideoRef.current.title || currentVideoRef.current.url,
-                  currentPlaylistId: activePlaylistIdRef.current,
-                  playbackState: 'playing',
-                  playbackTime: currentTime
-                }).catch(function() {});
-              }
-            }
-          } catch (e) {}
-        }
-        
+        // Just sync from server - don't broadcast our potentially stale state
+        // This ensures we always get the latest state from the room
         syncRoomState();
       }
     }
@@ -3595,26 +3540,7 @@ function Room(props) {
     window.addEventListener('focus', function() {
       api.presence.heartbeat(room.id, 'online').catch(console.error);
       
-      // Same logic for focus event
-      if (globalYTPlayer.player && globalYTPlayer.isReady) {
-        try {
-          var state = globalYTPlayer.player.getPlayerState();
-          if (state === 1 || state === 3) {
-            var currentTime = globalYTPlayer.player.getCurrentTime();
-            if (currentTime > 0 && currentVideoRef.current) {
-              lastSyncedTime.current = currentTime;
-              api.rooms.updateSync(room.id, {
-                currentVideoUrl: currentVideoRef.current.url,
-                currentVideoTitle: currentVideoRef.current.title || currentVideoRef.current.url,
-                currentPlaylistId: activePlaylistIdRef.current,
-                playbackState: 'playing',
-                playbackTime: currentTime
-              }).catch(function() {});
-            }
-          }
-        } catch (e) {}
-      }
-      
+      // Just sync from server on focus too
       syncRoomState();
     });
     
