@@ -62,15 +62,16 @@ CREATE TABLE IF NOT EXISTS videos (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Uploaded files table (for direct uploads)
+-- Uploaded files table (stores files directly in database as base64)
 CREATE TABLE IF NOT EXISTS uploaded_files (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  id VARCHAR(100) PRIMARY KEY, -- Unique file ID (timestamp_random)
+  room_id UUID REFERENCES rooms(id) ON DELETE CASCADE,
   filename VARCHAR(255) NOT NULL,
-  original_name VARCHAR(255) NOT NULL,
-  mime_type VARCHAR(100) NOT NULL,
-  size_bytes BIGINT NOT NULL,
-  storage_url TEXT NOT NULL, -- URL to file storage (S3, R2, etc.)
+  content_type VARCHAR(100) NOT NULL,
+  category VARCHAR(20) NOT NULL, -- 'audio' or 'video'
+  data TEXT NOT NULL, -- Base64 encoded file data
+  size INTEGER NOT NULL, -- File size in bytes
+  uploaded_by UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 

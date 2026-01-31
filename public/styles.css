@@ -1367,58 +1367,6 @@ body {
   border-radius: var(--radius-sm);
 }
 
-/* Spotify Player Styles */
-.spotify-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #191414 0%, #1a1a2e 100%);
-  padding: 20px;
-}
-
-.spotify-info {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding: 8px 16px;
-  background: rgba(30, 215, 96, 0.1);
-  border-radius: 20px;
-  border: 1px solid rgba(30, 215, 96, 0.2);
-}
-
-.spotify-badge {
-  color: #1DB954;
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.spotify-hint {
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.spotify-container iframe {
-  max-width: 400px;
-  width: 100%;
-}
-
-/* SoundCloud Player Styles */
-.soundcloud-container {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #1a1a2e 0%, #0d0d15 100%);
-  padding: 20px;
-}
-
-.soundcloud-container iframe {
-  max-width: 600px;
-  width: 100%;
-  border-radius: 8px;
-}
-
 /* Uploaded File Player Styles */
 .uploaded-audio {
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);

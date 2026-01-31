@@ -1,9 +1,8 @@
-import { getStore } from '@netlify/blobs';
 import { neon } from '@neondatabase/serverless';
 
 const sql = neon(process.env.NETLIFY_DATABASE_URL || process.env.DATABASE_URL);
 
-const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB limit
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB limit for database storage
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
@@ -33,8 +32,6 @@ const ALLOWED_TYPES = {
   'video/webm': { ext: 'webm', category: 'video' },
   'video/ogg': { ext: 'ogv', category: 'video' },
   'video/quicktime': { ext: 'mov', category: 'video' },
-  'video/x-msvideo': { ext: 'avi', category: 'video' },
-  'video/x-matroska': { ext: 'mkv', category: 'video' },
   // Audio
   'audio/mpeg': { ext: 'mp3', category: 'audio' },
   'audio/mp3': { ext: 'mp3', category: 'audio' },
@@ -111,17 +108,14 @@ export const handler = async (event, context) => {
     if (event.httpMethod === 'GET' && fileMatch) {
       const fileId = fileMatch[1];
       
-      const store = getStore('multiview-files');
+      // Get file from database
+      const [file] = await sql`
+        SELECT id, filename, content_type, data, category
+        FROM uploaded_files
+        WHERE id = ${fileId}
+      `;
       
-      // Get file metadata
-      const metadata = await store.getMetadata(fileId);
-      if (!metadata) {
-        return { statusCode: 404, headers, body: JSON.stringify({ error: 'File not found' }) };
-      }
-      
-      // Get file data
-      const fileData = await store.get(fileId, { type: 'arrayBuffer' });
-      if (!fileData) {
+      if (!file) {
         return { statusCode: 404, headers, body: JSON.stringify({ error: 'File not found' }) };
       }
       
@@ -130,11 +124,11 @@ export const handler = async (event, context) => {
         statusCode: 200,
         headers: {
           ...headers,
-          'Content-Type': metadata.metadata?.contentType || 'application/octet-stream',
-          'Content-Disposition': `inline; filename="${metadata.metadata?.filename || fileId}"`,
+          'Content-Type': file.content_type || 'application/octet-stream',
+          'Content-Disposition': `inline; filename="${file.filename || fileId}"`,
           'Cache-Control': 'public, max-age=31536000' // Cache for 1 year
         },
-        body: Buffer.from(fileData).toString('base64'),
+        body: file.data, // Already base64 encoded
         isBase64Encoded: true
       };
     }
@@ -178,35 +172,29 @@ export const handler = async (event, context) => {
         };
       }
       
-      // Check file size
+      // Convert to base64 for storage
       const fileBuffer = Buffer.from(file.data, 'binary');
+      const base64Data = fileBuffer.toString('base64');
+      
+      // Check file size
       if (fileBuffer.length > MAX_FILE_SIZE) {
         return { 
           statusCode: 400, 
           headers, 
-          body: JSON.stringify({ error: 'File too large. Maximum size is 100MB.' }) 
+          body: JSON.stringify({ error: 'File too large. Maximum size is 25MB.' }) 
         };
       }
       
       // Generate unique file ID
       const timestamp = Date.now();
       const random = Math.random().toString(36).substring(2, 10);
-      const fileId = `${roomId}_${timestamp}_${random}`;
+      const fileId = `${timestamp}_${random}`;
       
-      // Store file in Netlify Blobs
-      const store = getStore('multiview-files');
-      
-      await store.set(fileId, fileBuffer, {
-        metadata: {
-          filename: file.filename,
-          contentType: file.contentType,
-          category: typeInfo.category,
-          roomId: roomId,
-          uploadedBy: user ? user.id : (fields.guestId || 'anonymous'),
-          uploadedAt: new Date().toISOString(),
-          size: fileBuffer.length
-        }
-      });
+      // Store file in database
+      await sql`
+        INSERT INTO uploaded_files (id, room_id, filename, content_type, category, data, size, uploaded_by)
+        VALUES (${fileId}, ${roomId}::uuid, ${file.filename}, ${file.contentType}, ${typeInfo.category}, ${base64Data}, ${fileBuffer.length}, ${user ? user.id : null})
+      `;
       
       // Build the URL for accessing the file
       const fileUrl = `/.netlify/functions/files/${fileId}?type=${typeInfo.category}`;
@@ -226,22 +214,11 @@ export const handler = async (event, context) => {
       };
     }
 
-    // DELETE /files/:fileId - Delete a file (owner only)
+    // DELETE /files/:fileId - Delete a file
     if (event.httpMethod === 'DELETE' && fileMatch) {
       const fileId = fileMatch[1];
       
-      const store = getStore('multiview-files');
-      
-      // Get metadata to check ownership
-      const metadata = await store.getMetadata(fileId);
-      if (!metadata) {
-        return { statusCode: 404, headers, body: JSON.stringify({ error: 'File not found' }) };
-      }
-      
-      // Check if user can delete (must be uploader or room owner)
-      // For now, allow anyone to delete - can add stricter checks later
-      
-      await store.delete(fileId);
+      await sql`DELETE FROM uploaded_files WHERE id = ${fileId}`;
       
       return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
     }

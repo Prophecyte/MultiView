@@ -233,7 +233,7 @@ function parseVideoUrl(url) {
     return { type: 'direct', id: url, url: url };
   }
   
-  // Uploaded files (stored in Netlify Blobs)
+  // Uploaded files (stored in database)
   if (url.includes('/api/files/') || url.includes('/.netlify/functions/files/')) {
     var isAudio = url.match(/[?&]type=(audio|mp3|wav|m4a|flac|aac|ogg)/i);
     return { type: 'uploaded', id: url, url: url, isAudio: !!isAudio };
@@ -246,18 +246,6 @@ function parseVideoUrl(url) {
   // Vimeo
   var vimeoMatch = url.match(/vimeo\.com\/(\d+)/);
   if (vimeoMatch) return { type: 'vimeo', id: vimeoMatch[1], url: url };
-  
-  // Spotify - tracks, albums, playlists, episodes, shows
-  var spotifyMatch = url.match(/open\.spotify\.com\/(track|album|playlist|episode|show)\/([a-zA-Z0-9]+)/);
-  if (spotifyMatch) return { type: 'spotify', contentType: spotifyMatch[1], id: spotifyMatch[2], url: url };
-  
-  // Spotify URI format (spotify:track:xxx)
-  var spotifyUriMatch = url.match(/spotify:(track|album|playlist|episode|show):([a-zA-Z0-9]+)/);
-  if (spotifyUriMatch) return { type: 'spotify', contentType: spotifyUriMatch[1], id: spotifyUriMatch[2], url: url };
-  
-  // SoundCloud
-  var soundcloudMatch = url.match(/soundcloud\.com\/([^\/]+\/[^\/]+)/);
-  if (soundcloudMatch) return { type: 'soundcloud', id: soundcloudMatch[1], url: url };
   
   // Direct video/audio files
   if (url.match(/\.(mp4|webm|ogg|ogv|avi|mov|mkv|m4v|mp3|wav|m4a|flac|aac)(\?|$)/i)) {
@@ -288,10 +276,6 @@ function getVideoThumbnail(url) {
   if (parsed.type === 'youtube') {
     return 'https://img.youtube.com/vi/' + parsed.id + '/default.jpg';
   }
-  if (parsed.type === 'spotify') {
-    // Spotify doesn't provide easy thumbnail access, return null
-    return null;
-  }
   if (parsed.type === 'vimeo') {
     // Vimeo requires API call, use placeholder
     return null;
@@ -304,7 +288,7 @@ function getVideoThumbnail(url) {
 }
 
 function getVideoTypeIcon(type) {
-  var icons = { youtube: '▶️', vimeo: '🎬', spotify: '🎵', soundcloud: '☁️', uploaded: '📁', direct: '📹' };
+  var icons = { youtube: '▶️', vimeo: '🎬', uploaded: '📁', direct: '📹' };
   return icons[type] || '📹';
 }
 
@@ -1348,46 +1332,7 @@ function VideoPlayer(props) {
     });
   }
   
-  // Spotify embed player
-  // Note: If user is logged into Spotify in their browser, they get full playback
-  // Otherwise, they get 30-second previews
-  if (parsed.type === 'spotify') {
-    var spotifyEmbedUrl = 'https://open.spotify.com/embed/' + parsed.contentType + '/' + parsed.id + '?utm_source=generator&theme=0';
-    return React.createElement('div', { className: 'video-frame spotify-container' },
-      React.createElement('div', { className: 'spotify-info' },
-        React.createElement('span', { className: 'spotify-badge' }, '🎵 Spotify'),
-        React.createElement('span', { className: 'spotify-hint' }, 'Log into Spotify for full playback')
-      ),
-      React.createElement('iframe', {
-        key: video.url,
-        src: spotifyEmbedUrl,
-        width: '100%',
-        height: '352',
-        frameBorder: '0',
-        allow: 'autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture',
-        loading: 'lazy',
-        style: { borderRadius: '12px' }
-      })
-    );
-  }
-  
-  // SoundCloud embed player
-  if (parsed.type === 'soundcloud') {
-    var soundcloudEmbedUrl = 'https://w.soundcloud.com/player/?url=' + encodeURIComponent(video.url) + '&color=%23ff5500&auto_play=true&hide_related=true&show_comments=false&show_user=true&show_reposts=false&show_teaser=false&visual=true';
-    return React.createElement('div', { className: 'video-frame soundcloud-container' },
-      React.createElement('iframe', {
-        key: video.url,
-        width: '100%',
-        height: '300',
-        scrolling: 'no',
-        frameBorder: 'no',
-        allow: 'autoplay',
-        src: soundcloudEmbedUrl
-      })
-    );
-  }
-  
-  // Uploaded files (from Netlify Blobs)
+  // Uploaded files (from database)
   if (parsed.type === 'uploaded') {
     var isAudioFile = parsed.isAudio || 
                       video.isAudio ||
@@ -3963,9 +3908,9 @@ function Room(props) {
       return;
     }
     
-    // Validate file size (100MB max)
-    if (file.size > 100 * 1024 * 1024) {
-      showNotif('File too large. Maximum size is 100MB.', 'error');
+    // Validate file size (25MB max for database storage)
+    if (file.size > 25 * 1024 * 1024) {
+      showNotif('File too large. Maximum size is 25MB.', 'error');
       return;
     }
     
