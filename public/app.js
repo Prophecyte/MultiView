@@ -188,6 +188,40 @@ api.presence = {
   }
 };
 
+// File upload API (uses Netlify Blobs)
+api.files = {
+  upload: function(file, roomId) {
+    return new Promise(function(resolve, reject) {
+      var formData = new FormData();
+      formData.append('file', file);
+      formData.append('roomId', roomId);
+      
+      var token = api.getToken();
+      var guestId = token ? null : api.getGuestId();
+      if (guestId) formData.append('guestId', guestId);
+      
+      fetch('/.netlify/functions/files', {
+        method: 'POST',
+        headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+        body: formData
+      })
+      .then(function(res) {
+        if (!res.ok) {
+          return res.json().then(function(data) {
+            throw new Error(data.error || 'Upload failed');
+          });
+        }
+        return res.json();
+      })
+      .then(resolve)
+      .catch(reject);
+    });
+  },
+  getUrl: function(fileId) {
+    return '/.netlify/functions/files/' + fileId;
+  }
+};
+
 // ============================================
 // Utilities
 // ============================================
@@ -199,6 +233,12 @@ function parseVideoUrl(url) {
     return { type: 'direct', id: url, url: url };
   }
   
+  // Uploaded files (stored in Netlify Blobs)
+  if (url.includes('/api/files/') || url.includes('/.netlify/functions/files/')) {
+    var isAudio = url.match(/[?&]type=(audio|mp3|wav|m4a|flac|aac|ogg)/i);
+    return { type: 'uploaded', id: url, url: url, isAudio: !!isAudio };
+  }
+  
   // YouTube
   var ytMatch = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
   if (ytMatch) return { type: 'youtube', id: ytMatch[1], url: url };
@@ -206,6 +246,18 @@ function parseVideoUrl(url) {
   // Vimeo
   var vimeoMatch = url.match(/vimeo\.com\/(\d+)/);
   if (vimeoMatch) return { type: 'vimeo', id: vimeoMatch[1], url: url };
+  
+  // Spotify - tracks, albums, playlists, episodes, shows
+  var spotifyMatch = url.match(/open\.spotify\.com\/(track|album|playlist|episode|show)\/([a-zA-Z0-9]+)/);
+  if (spotifyMatch) return { type: 'spotify', contentType: spotifyMatch[1], id: spotifyMatch[2], url: url };
+  
+  // Spotify URI format (spotify:track:xxx)
+  var spotifyUriMatch = url.match(/spotify:(track|album|playlist|episode|show):([a-zA-Z0-9]+)/);
+  if (spotifyUriMatch) return { type: 'spotify', contentType: spotifyUriMatch[1], id: spotifyUriMatch[2], url: url };
+  
+  // SoundCloud
+  var soundcloudMatch = url.match(/soundcloud\.com\/([^\/]+\/[^\/]+)/);
+  if (soundcloudMatch) return { type: 'soundcloud', id: soundcloudMatch[1], url: url };
   
   // Direct video/audio files
   if (url.match(/\.(mp4|webm|ogg|ogv|avi|mov|mkv|m4v|mp3|wav|m4a|flac|aac)(\?|$)/i)) {
@@ -236,6 +288,10 @@ function getVideoThumbnail(url) {
   if (parsed.type === 'youtube') {
     return 'https://img.youtube.com/vi/' + parsed.id + '/default.jpg';
   }
+  if (parsed.type === 'spotify') {
+    // Spotify doesn't provide easy thumbnail access, return null
+    return null;
+  }
   if (parsed.type === 'vimeo') {
     // Vimeo requires API call, use placeholder
     return null;
@@ -248,7 +304,7 @@ function getVideoThumbnail(url) {
 }
 
 function getVideoTypeIcon(type) {
-  var icons = { youtube: '▶️', vimeo: '🎬', direct: '📹' };
+  var icons = { youtube: '▶️', vimeo: '🎬', spotify: '🎵', soundcloud: '☁️', uploaded: '📁', direct: '📹' };
   return icons[type] || '📹';
 }
 
@@ -1288,6 +1344,84 @@ function VideoPlayer(props) {
       src: 'https://player.vimeo.com/video/' + parsed.id + '?autoplay=1', 
       allow: 'autoplay; fullscreen', 
       allowFullScreen: true, 
+      className: 'video-frame' 
+    });
+  }
+  
+  // Spotify embed player
+  // Note: If user is logged into Spotify in their browser, they get full playback
+  // Otherwise, they get 30-second previews
+  if (parsed.type === 'spotify') {
+    var spotifyEmbedUrl = 'https://open.spotify.com/embed/' + parsed.contentType + '/' + parsed.id + '?utm_source=generator&theme=0';
+    return React.createElement('div', { className: 'video-frame spotify-container' },
+      React.createElement('div', { className: 'spotify-info' },
+        React.createElement('span', { className: 'spotify-badge' }, '🎵 Spotify'),
+        React.createElement('span', { className: 'spotify-hint' }, 'Log into Spotify for full playback')
+      ),
+      React.createElement('iframe', {
+        key: video.url,
+        src: spotifyEmbedUrl,
+        width: '100%',
+        height: '352',
+        frameBorder: '0',
+        allow: 'autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture',
+        loading: 'lazy',
+        style: { borderRadius: '12px' }
+      })
+    );
+  }
+  
+  // SoundCloud embed player
+  if (parsed.type === 'soundcloud') {
+    var soundcloudEmbedUrl = 'https://w.soundcloud.com/player/?url=' + encodeURIComponent(video.url) + '&color=%23ff5500&auto_play=true&hide_related=true&show_comments=false&show_user=true&show_reposts=false&show_teaser=false&visual=true';
+    return React.createElement('div', { className: 'video-frame soundcloud-container' },
+      React.createElement('iframe', {
+        key: video.url,
+        width: '100%',
+        height: '300',
+        scrolling: 'no',
+        frameBorder: 'no',
+        allow: 'autoplay',
+        src: soundcloudEmbedUrl
+      })
+    );
+  }
+  
+  // Uploaded files (from Netlify Blobs)
+  if (parsed.type === 'uploaded') {
+    var isAudioFile = parsed.isAudio || 
+                      video.isAudio ||
+                      video.url.match(/[?&]type=audio/i) ||
+                      (video.title && video.title.match(/\.(mp3|wav|m4a|flac|aac|ogg)$/i));
+    
+    if (isAudioFile) {
+      return React.createElement('div', { className: 'video-placeholder uploaded-audio' },
+        React.createElement('div', { className: 'upload-icon' }, '🎵'),
+        React.createElement('p', { className: 'upload-title' }, video.title || 'Uploaded Audio'),
+        React.createElement('audio', { 
+          ref: videoRef,
+          key: video.url, 
+          src: video.url, 
+          controls: true, 
+          autoPlay: playbackState === 'playing',
+          onPlay: function() { if (onStateChange) onStateChange('playing'); },
+          onPause: function() { if (onStateChange) onStateChange('paused'); },
+          onEnded: function() { if (onEnded) onEnded(); },
+          style: { width: '80%', maxWidth: '500px' } 
+        })
+      );
+    }
+    
+    // Uploaded video file
+    return React.createElement('video', { 
+      ref: videoRef,
+      key: video.url, 
+      src: video.url, 
+      controls: true, 
+      autoPlay: playbackState === 'playing',
+      onPlay: function() { if (onStateChange) onStateChange('playing'); },
+      onPause: function() { if (onStateChange) onStateChange('paused'); },
+      onEnded: function() { if (onEnded) onEnded(); },
       className: 'video-frame' 
     });
   }
@@ -3067,6 +3201,16 @@ function Room(props) {
   var urlInput = _urlInput[0];
   var setUrlInput = _urlInput[1];
   
+  var _uploading = useState(false);
+  var uploading = _uploading[0];
+  var setUploading = _uploading[1];
+  
+  var _uploadProgress = useState(0);
+  var uploadProgress = _uploadProgress[0];
+  var setUploadProgress = _uploadProgress[1];
+  
+  var fileInputRef = useRef(null);
+  
   var _sidebarOpen = useState(window.innerWidth > 768);
   var sidebarOpen = _sidebarOpen[0];
   var setSidebarOpen = _sidebarOpen[1];
@@ -3806,6 +3950,78 @@ function Room(props) {
     broadcastState(video, 'playing', 0);
   }
 
+  function handleFileUpload(event) {
+    var file = event.target.files && event.target.files[0];
+    if (!file) return;
+    
+    // Validate file type
+    var validTypes = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 
+                      'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/mp4', 'audio/ogg', 
+                      'audio/flac', 'audio/aac', 'audio/x-m4a', 'audio/x-wav'];
+    if (!validTypes.includes(file.type) && !file.name.match(/\.(mp4|webm|ogv|mov|mp3|wav|m4a|ogg|flac|aac)$/i)) {
+      showNotif('File type not supported. Use mp4, webm, mp3, wav, m4a, ogg, or flac.', 'error');
+      return;
+    }
+    
+    // Validate file size (100MB max)
+    if (file.size > 100 * 1024 * 1024) {
+      showNotif('File too large. Maximum size is 100MB.', 'error');
+      return;
+    }
+    
+    setUploading(true);
+    setUploadProgress(0);
+    
+    api.files.upload(file, room.id)
+      .then(function(result) {
+        setUploading(false);
+        setUploadProgress(100);
+        
+        // Determine if it's audio based on file type or response
+        var isAudio = result.category === 'audio' || file.type.startsWith('audio/');
+        
+        var videoData = {
+          title: file.name,
+          url: result.url,
+          videoType: 'uploaded',
+          isAudio: isAudio
+        };
+        
+        // If we have an active playlist, add to it
+        if (activePlaylist) {
+          api.playlists.addVideo(activePlaylist.id, videoData).then(function(video) {
+            // Update local playlist
+            var updated = Object.assign({}, activePlaylist, { 
+              videos: (activePlaylist.videos || []).concat([video]) 
+            });
+            setPlaylists(playlists.map(function(p) { return p.id === activePlaylist.id ? updated : p; }));
+            setActivePlaylist(updated);
+            showNotif('File uploaded and added to playlist!');
+            
+            // Optionally play the uploaded file
+            playVideo(video);
+          });
+        } else {
+          // No playlist - just play immediately
+          var tempVideo = { id: result.fileId, title: file.name, url: result.url, isAudio: isAudio };
+          setCurrentVideo(tempVideo);
+          setPlaybackState('playing');
+          setPlaybackTime(0);
+          broadcastState(tempVideo, 'playing', 0);
+          showNotif('File uploaded! Add to a playlist to save it.');
+        }
+        
+        // Reset file input
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      })
+      .catch(function(err) {
+        setUploading(false);
+        console.error('Upload failed:', err);
+        showNotif('Upload failed: ' + (err.message || 'Unknown error'), 'error');
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      });
+  }
+
   function playNow() {
     if (!urlInput.trim()) return;
     var parsed = parseVideoUrl(urlInput.trim());
@@ -4271,10 +4487,26 @@ function Room(props) {
       ),
       React.createElement('div', { className: 'header-center' },
         React.createElement('div', { className: 'url-bar' },
-          React.createElement('input', { value: urlInput, onChange: function(e) { setUrlInput(e.target.value); }, placeholder: 'Enter URL...', onKeyDown: function(e) { if (e.key === 'Enter') playNow(); } }),
+          React.createElement('input', { value: urlInput, onChange: function(e) { setUrlInput(e.target.value); }, placeholder: 'Paste URL (YouTube, Spotify, etc.)...', onKeyDown: function(e) { if (e.key === 'Enter') playNow(); } }),
           React.createElement('button', { className: 'icon-btn primary', onClick: playNow, title: 'Play Now' }, React.createElement(Icon, { name: 'play' })),
           React.createElement('button', { className: 'icon-btn', onClick: handleAddUrl, disabled: !activePlaylist, title: 'Add to Playlist' }, React.createElement(Icon, { name: 'plus' })),
-          React.createElement('button', { className: 'icon-btn', onClick: function() { showNotif('File upload coming soon!', 'info'); }, title: 'Upload (Coming Soon)' }, React.createElement(Icon, { name: 'upload' }))
+          // Hidden file input
+          React.createElement('input', { 
+            ref: fileInputRef,
+            type: 'file', 
+            accept: 'video/mp4,video/webm,video/ogg,video/quicktime,audio/mpeg,audio/mp3,audio/wav,audio/mp4,audio/ogg,audio/flac,audio/aac,.mp4,.webm,.ogv,.mov,.mp3,.wav,.m4a,.ogg,.flac,.aac',
+            onChange: handleFileUpload,
+            style: { display: 'none' }
+          }),
+          React.createElement('button', { 
+            className: 'icon-btn' + (uploading ? ' uploading' : ''), 
+            onClick: function() { if (!uploading && fileInputRef.current) fileInputRef.current.click(); }, 
+            disabled: uploading,
+            title: uploading ? 'Uploading...' : 'Upload Audio/Video File'
+          }, uploading 
+            ? React.createElement('span', { className: 'upload-spinner' }, '⏳')
+            : React.createElement(Icon, { name: 'upload' })
+          )
         )
       ),
       React.createElement('div', { className: 'header-right' },

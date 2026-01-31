@@ -51,3 +51,15 @@
   to = "/.netlify/functions/presence"
   status = 200
   force = true
+
+[[redirects]]
+  from = "/api/files/*"
+  to = "/.netlify/functions/files/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/files"
+  to = "/.netlify/functions/files"
+  status = 200
+  force = true
