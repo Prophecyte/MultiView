@@ -78,14 +78,17 @@ export const handler = async (event) => {
         return { statusCode: 400, headers, body: JSON.stringify({ error: 'roomId required' }) };
       }
 
+      // Set status to offline AND set last_seen to past time to immediately exclude from online count
       if (user) {
         await sql`
-          UPDATE room_visitors SET status = 'offline'
+          UPDATE room_visitors 
+          SET status = 'offline', last_seen = NOW() - INTERVAL '1 hour'
           WHERE room_id = ${roomId}::uuid AND user_id = ${user.id}
         `;
       } else if (guestId) {
         await sql`
-          UPDATE room_visitors SET status = 'offline'
+          UPDATE room_visitors 
+          SET status = 'offline', last_seen = NOW() - INTERVAL '1 hour'
           WHERE room_id = ${roomId}::uuid AND guest_id = ${guestId}
         `;
       }
