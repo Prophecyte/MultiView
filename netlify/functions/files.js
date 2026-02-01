@@ -2,7 +2,7 @@ import { neon } from '@neondatabase/serverless';
 
 const sql = neon(process.env.NETLIFY_DATABASE_URL || process.env.DATABASE_URL);
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 25MB limit
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB limit
 
 const headers = {
   'Access-Control-Allow-Origin': '*',

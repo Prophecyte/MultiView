@@ -3938,8 +3938,11 @@ function Room(props) {
     }
 
     // Validate file size (4MB max - Netlify function limit)
-    if (file.size > 10 * 1024 * 1024) {
-      showNotif('File too large. Maximum size is 10MB.', 'error');
+    const MAX_FILE_SIZE_MB = 10;
+    const MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024;
+
+    if (file.size > MAX_FILE_SIZE) {
+      showNotif(`File too large. Maximum size is ${MAX_FILE_SIZE_MB}MB.`, 'error');
       return;
     }
 
