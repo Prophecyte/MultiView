@@ -2,9 +2,7 @@ import { neon } from '@neondatabase/serverless';
 
 const sql = neon(process.env.NETLIFY_DATABASE_URL || process.env.DATABASE_URL);
 
-// Netlify Functions have ~6MB body limit, base64 adds ~33% overhead
-// So max safe file size is about 4MB
-const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB limit
+const MAX_FILE_SIZE = 25 * 1024 * 1024; 
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
