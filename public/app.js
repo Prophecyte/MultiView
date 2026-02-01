@@ -1339,36 +1339,65 @@ function VideoPlayer(props) {
                       video.url.match(/[?&]type=audio/i) ||
                       (video.title && video.title.match(/\.(mp3|wav|m4a|flac|aac|ogg)$/i));
     
+    // Get file extension for display
+    var fileExt = video.title ? video.title.split('.').pop().toUpperCase() : 'AUDIO';
+    
     if (isAudioFile) {
-      return React.createElement('div', { className: 'video-placeholder uploaded-audio' },
-        React.createElement('div', { className: 'upload-icon' }, '🎵'),
-        React.createElement('p', { className: 'upload-title' }, video.title || 'Uploaded Audio'),
-        React.createElement('audio', { 
-          ref: videoRef,
-          key: video.url, 
-          src: video.url, 
-          controls: true, 
-          autoPlay: playbackState === 'playing',
-          onPlay: function() { if (onStateChange) onStateChange('playing'); },
-          onPause: function() { if (onStateChange) onStateChange('paused'); },
-          onEnded: function() { if (onEnded) onEnded(); },
-          style: { width: '80%', maxWidth: '500px' } 
-        })
+      return React.createElement('div', { className: 'uploaded-player audio-player' },
+        React.createElement('div', { className: 'audio-visualizer' },
+          React.createElement('div', { className: 'visualizer-bars' },
+            Array.from({ length: 20 }, function(_, i) {
+              return React.createElement('div', { 
+                key: i, 
+                className: 'bar', 
+                style: { animationDelay: (i * 0.05) + 's' } 
+              });
+            })
+          )
+        ),
+        React.createElement('div', { className: 'audio-info' },
+          React.createElement('div', { className: 'file-badge' }, 
+            React.createElement('span', { className: 'file-icon' }, '📁'),
+            React.createElement('span', { className: 'file-type' }, fileExt)
+          ),
+          React.createElement('h3', { className: 'audio-title' }, video.title || 'Uploaded Audio')
+        ),
+        React.createElement('div', { className: 'audio-controls-wrapper' },
+          React.createElement('audio', { 
+            ref: videoRef,
+            key: video.url, 
+            src: video.url, 
+            controls: true, 
+            autoPlay: playbackState === 'playing',
+            onPlay: function() { if (onStateChange) onStateChange('playing'); },
+            onPause: function() { if (onStateChange) onStateChange('paused'); },
+            onEnded: function() { if (onEnded) onEnded(); },
+            className: 'custom-audio-player'
+          })
+        )
       );
     }
     
     // Uploaded video file
-    return React.createElement('video', { 
-      ref: videoRef,
-      key: video.url, 
-      src: video.url, 
-      controls: true, 
-      autoPlay: playbackState === 'playing',
-      onPlay: function() { if (onStateChange) onStateChange('playing'); },
-      onPause: function() { if (onStateChange) onStateChange('paused'); },
-      onEnded: function() { if (onEnded) onEnded(); },
-      className: 'video-frame' 
-    });
+    return React.createElement('div', { className: 'uploaded-player video-player-wrapper' },
+      React.createElement('video', { 
+        ref: videoRef,
+        key: video.url, 
+        src: video.url, 
+        controls: true, 
+        autoPlay: playbackState === 'playing',
+        onPlay: function() { if (onStateChange) onStateChange('playing'); },
+        onPause: function() { if (onStateChange) onStateChange('paused'); },
+        onEnded: function() { if (onEnded) onEnded(); },
+        className: 'uploaded-video' 
+      }),
+      React.createElement('div', { className: 'video-overlay-info' },
+        React.createElement('span', { className: 'file-badge small' },
+          React.createElement('span', { className: 'file-icon' }, '📁'),
+          React.createElement('span', { className: 'file-type' }, 'UPLOADED')
+        )
+      )
+    );
   }
   
   if (parsed.type === 'direct') {
@@ -3908,9 +3937,9 @@ function Room(props) {
       return;
     }
     
-    // Validate file size (25MB max for database storage)
-    if (file.size > 25 * 1024 * 1024) {
-      showNotif('File too large. Maximum size is 25MB.', 'error');
+    // Validate file size (4MB max - Netlify function limit)
+    if (file.size > 4 * 1024 * 1024) {
+      showNotif('File too large. Maximum size is 4MB.', 'error');
       return;
     }
     

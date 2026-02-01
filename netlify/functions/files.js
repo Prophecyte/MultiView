@@ -2,7 +2,9 @@ import { neon } from '@neondatabase/serverless';
 
 const sql = neon(process.env.NETLIFY_DATABASE_URL || process.env.DATABASE_URL);
 
-const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB limit for database storage
+// Netlify Functions have ~6MB body limit, base64 adds ~33% overhead
+// So max safe file size is about 4MB
+const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB limit
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
@@ -13,16 +15,21 @@ const headers = {
 // Get user from session token
 const getUserFromToken = async (authHeader) => {
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
-  const token = authHeader.replace('Bearer ', '');
-  
-  const [session] = await sql`
-    SELECT u.id, u.email, u.display_name
-    FROM sessions s
-    JOIN users u ON s.user_id = u.id
-    WHERE s.token = ${token} AND s.expires_at > NOW()
-  `;
-  
-  return session || null;
+  try {
+    const token = authHeader.replace('Bearer ', '');
+    
+    const [session] = await sql`
+      SELECT u.id, u.email, u.display_name
+      FROM sessions s
+      JOIN users u ON s.user_id = u.id
+      WHERE s.token = ${token} AND s.expires_at > NOW()
+    `;
+    
+    return session || null;
+  } catch (e) {
+    console.error('Token validation error:', e);
+    return null;
+  }
 };
 
 // Allowed file types
@@ -45,50 +52,75 @@ const ALLOWED_TYPES = {
   'audio/webm': { ext: 'webm', category: 'audio' }
 };
 
-// Parse multipart form data
-function parseMultipart(body, contentType) {
-  const boundary = contentType.split('boundary=')[1];
-  if (!boundary) return null;
-  
-  const parts = body.split('--' + boundary);
-  const result = { fields: {}, file: null };
-  
-  for (const part of parts) {
-    if (part.includes('Content-Disposition')) {
-      const nameMatch = part.match(/name="([^"]+)"/);
-      const filenameMatch = part.match(/filename="([^"]+)"/);
+// Parse multipart form data (handles binary data properly)
+function parseMultipart(bodyBuffer, contentType) {
+  try {
+    const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^\s;]+))/);
+    if (!boundaryMatch) return null;
+    const boundary = boundaryMatch[1] || boundaryMatch[2];
+    
+    const boundaryBuffer = Buffer.from('--' + boundary);
+    const result = { fields: {}, file: null };
+    
+    // Find all boundary positions
+    let pos = 0;
+    const parts = [];
+    
+    while (pos < bodyBuffer.length) {
+      const boundaryPos = bodyBuffer.indexOf(boundaryBuffer, pos);
+      if (boundaryPos === -1) break;
       
-      if (nameMatch) {
-        const name = nameMatch[1];
-        
-        // Find the content (after double newline)
-        const contentStart = part.indexOf('\r\n\r\n');
-        if (contentStart === -1) continue;
-        
-        let content = part.slice(contentStart + 4);
-        // Remove trailing \r\n
-        if (content.endsWith('\r\n')) {
-          content = content.slice(0, -2);
-        }
-        
-        if (filenameMatch) {
-          // This is a file
-          const contentTypeMatch = part.match(/Content-Type:\s*([^\r\n]+)/);
-          result.file = {
-            name: name,
-            filename: filenameMatch[1],
-            contentType: contentTypeMatch ? contentTypeMatch[1].trim() : 'application/octet-stream',
-            data: content
-          };
-        } else {
-          // This is a field
-          result.fields[name] = content.trim();
+      if (parts.length > 0) {
+        // End of previous part (excluding \r\n before boundary)
+        const partEnd = boundaryPos - 2;
+        if (partEnd > parts[parts.length - 1]) {
+          parts[parts.length - 1] = { start: parts[parts.length - 1], end: partEnd };
         }
       }
+      
+      // Start of new part (after boundary and \r\n)
+      const partStart = boundaryPos + boundaryBuffer.length + 2;
+      parts.push(partStart);
+      pos = partStart;
     }
+    
+    // Process each part
+    for (const part of parts) {
+      if (typeof part !== 'object') continue;
+      
+      const partBuffer = bodyBuffer.slice(part.start, part.end);
+      const headerEnd = partBuffer.indexOf(Buffer.from('\r\n\r\n'));
+      if (headerEnd === -1) continue;
+      
+      const headerStr = partBuffer.slice(0, headerEnd).toString('utf8');
+      const contentBuffer = partBuffer.slice(headerEnd + 4);
+      
+      const nameMatch = headerStr.match(/name="([^"]+)"/);
+      if (!nameMatch) continue;
+      
+      const name = nameMatch[1];
+      const filenameMatch = headerStr.match(/filename="([^"]+)"/);
+      
+      if (filenameMatch) {
+        // This is a file
+        const ctMatch = headerStr.match(/Content-Type:\s*([^\r\n]+)/i);
+        result.file = {
+          name: name,
+          filename: filenameMatch[1],
+          contentType: ctMatch ? ctMatch[1].trim() : 'application/octet-stream',
+          buffer: contentBuffer
+        };
+      } else {
+        // This is a field
+        result.fields[name] = contentBuffer.toString('utf8').trim();
+      }
+    }
+    
+    return result;
+  } catch (e) {
+    console.error('Multipart parse error:', e);
+    return null;
   }
-  
-  return result;
 }
 
 export const handler = async (event, context) => {
@@ -96,9 +128,6 @@ export const handler = async (event, context) => {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
   }
-
-  // Get user from token (optional - guests can upload too)
-  const user = await getUserFromToken(event.headers.authorization || event.headers.Authorization);
 
   const path = event.path.replace('/.netlify/functions/files', '').replace('/api/files', '');
 
@@ -126,9 +155,9 @@ export const handler = async (event, context) => {
           ...headers,
           'Content-Type': file.content_type || 'application/octet-stream',
           'Content-Disposition': `inline; filename="${file.filename || fileId}"`,
-          'Cache-Control': 'public, max-age=31536000' // Cache for 1 year
+          'Cache-Control': 'public, max-age=31536000'
         },
-        body: file.data, // Already base64 encoded
+        body: file.data,
         isBase64Encoded: true
       };
     }
@@ -141,16 +170,21 @@ export const handler = async (event, context) => {
         return { statusCode: 400, headers, body: JSON.stringify({ error: 'Content-Type must be multipart/form-data' }) };
       }
       
-      // Decode body if base64
-      let body = event.body;
+      // Get user (optional)
+      const user = await getUserFromToken(event.headers.authorization || event.headers.Authorization);
+      
+      // Convert body to buffer
+      let bodyBuffer;
       if (event.isBase64Encoded) {
-        body = Buffer.from(body, 'base64').toString('binary');
+        bodyBuffer = Buffer.from(event.body, 'base64');
+      } else {
+        bodyBuffer = Buffer.from(event.body, 'binary');
       }
       
       // Parse multipart data
-      const parsed = parseMultipart(body, contentType);
+      const parsed = parseMultipart(bodyBuffer, contentType);
       if (!parsed || !parsed.file) {
-        return { statusCode: 400, headers, body: JSON.stringify({ error: 'No file provided' }) };
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'No file provided or parse error' }) };
       }
       
       const { file, fields } = parsed;
@@ -161,29 +195,38 @@ export const handler = async (event, context) => {
       }
       
       // Check file type
-      const typeInfo = ALLOWED_TYPES[file.contentType];
+      let typeInfo = ALLOWED_TYPES[file.contentType];
+      
+      // Fallback: check by file extension if MIME type not recognized
+      if (!typeInfo) {
+        const ext = file.filename.split('.').pop().toLowerCase();
+        const extMap = { mp3: 'audio', wav: 'audio', m4a: 'audio', ogg: 'audio', flac: 'audio', aac: 'audio', mp4: 'video', webm: 'video', ogv: 'video', mov: 'video' };
+        if (extMap[ext]) {
+          typeInfo = { ext: ext, category: extMap[ext] };
+        }
+      }
+      
       if (!typeInfo) {
         return { 
           statusCode: 400, 
           headers, 
           body: JSON.stringify({ 
-            error: 'File type not allowed. Supported: mp4, webm, mp3, wav, m4a, ogg, flac' 
+            error: `File type "${file.contentType}" not allowed. Supported: mp4, webm, mp3, wav, m4a, ogg, flac` 
           }) 
         };
       }
       
-      // Convert to base64 for storage
-      const fileBuffer = Buffer.from(file.data, 'binary');
-      const base64Data = fileBuffer.toString('base64');
-      
       // Check file size
-      if (fileBuffer.length > MAX_FILE_SIZE) {
+      if (file.buffer.length > MAX_FILE_SIZE) {
         return { 
           statusCode: 400, 
           headers, 
-          body: JSON.stringify({ error: 'File too large. Maximum size is 25MB.' }) 
+          body: JSON.stringify({ error: `File too large (${(file.buffer.length / 1024 / 1024).toFixed(1)}MB). Maximum size is 4MB.` }) 
         };
       }
+      
+      // Convert to base64 for storage
+      const base64Data = file.buffer.toString('base64');
       
       // Generate unique file ID
       const timestamp = Date.now();
@@ -193,7 +236,7 @@ export const handler = async (event, context) => {
       // Store file in database
       await sql`
         INSERT INTO uploaded_files (id, room_id, filename, content_type, category, data, size, uploaded_by)
-        VALUES (${fileId}, ${roomId}::uuid, ${file.filename}, ${file.contentType}, ${typeInfo.category}, ${base64Data}, ${fileBuffer.length}, ${user ? user.id : null})
+        VALUES (${fileId}, ${roomId}::uuid, ${file.filename}, ${file.contentType}, ${typeInfo.category}, ${base64Data}, ${file.buffer.length}, ${user ? user.id : null})
       `;
       
       // Build the URL for accessing the file
@@ -209,14 +252,15 @@ export const handler = async (event, context) => {
           filename: file.filename,
           contentType: file.contentType,
           category: typeInfo.category,
-          size: fileBuffer.length
+          size: file.buffer.length
         })
       };
     }
 
     // DELETE /files/:fileId - Delete a file
-    if (event.httpMethod === 'DELETE' && fileMatch) {
-      const fileId = fileMatch[1];
+    const deleteMatch = path.match(/^\/([a-zA-Z0-9_-]+)$/);
+    if (event.httpMethod === 'DELETE' && deleteMatch) {
+      const fileId = deleteMatch[1];
       
       await sql`DELETE FROM uploaded_files WHERE id = ${fileId}`;
       
@@ -227,6 +271,6 @@ export const handler = async (event, context) => {
 
   } catch (error) {
     console.error('Files error:', error);
-    return { statusCode: 500, headers, body: JSON.stringify({ error: error.message || 'Server error' }) };
+    return { statusCode: 500, headers, body: JSON.stringify({ error: error.message || 'Server error', details: error.toString() }) };
   }
 };
