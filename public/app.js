@@ -19,7 +19,7 @@ var api = {
   getToken: function() { return localStorage.getItem('mv_token'); },
   setToken: function(token) { localStorage.setItem('mv_token', token); },
   clearToken: function() { localStorage.removeItem('mv_token'); },
-  
+
   getGuestId: function() {
     var guestId = localStorage.getItem('mv_guest_id');
     if (!guestId) {
@@ -91,21 +91,21 @@ api.auth = {
     });
   },
   updateProfile: function(displayName) {
-    return api.request('/auth/profile', { 
-      method: 'PUT', 
-      body: JSON.stringify({ displayName: displayName }) 
+    return api.request('/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify({ displayName: displayName })
     });
   },
   updateEmail: function(newEmail, password) {
-    return api.request('/auth/email', { 
-      method: 'PUT', 
-      body: JSON.stringify({ newEmail: newEmail, password: password }) 
+    return api.request('/auth/email', {
+      method: 'PUT',
+      body: JSON.stringify({ newEmail: newEmail, password: password })
     });
   },
   updatePassword: function(currentPassword, newPassword) {
-    return api.request('/auth/password', { 
-      method: 'PUT', 
-      body: JSON.stringify({ currentPassword: currentPassword, newPassword: newPassword }) 
+    return api.request('/auth/password', {
+      method: 'PUT',
+      body: JSON.stringify({ currentPassword: currentPassword, newPassword: newPassword })
     });
   },
   deleteAccount: function() {
@@ -125,13 +125,13 @@ api.rooms = {
   delete: function(roomId) { return api.request('/rooms/' + roomId, { method: 'DELETE' }); },
   join: function(roomId, displayName, returningGuestName) {
     var guestId = api.getToken() ? null : api.getGuestId();
-    return api.request('/rooms/' + roomId + '/join', { 
-      method: 'POST', 
-      body: JSON.stringify({ 
-        displayName: displayName, 
+    return api.request('/rooms/' + roomId + '/join', {
+      method: 'POST',
+      body: JSON.stringify({
+        displayName: displayName,
         guestId: guestId,
         returningGuestName: returningGuestName || null
-      }) 
+      })
     }).then(function(result) {
       // If server returned a different guestId (returning guest), update local storage
       if (result.guestId && result.guestId !== guestId) {
@@ -155,10 +155,10 @@ api.rooms = {
 };
 
 api.playlists = {
-  list: function(roomId, includeHidden) { 
+  list: function(roomId, includeHidden) {
     var url = '/playlists?roomId=' + roomId;
     if (includeHidden) url += '&includeHidden=true';
-    return api.request(url).then(function(d) { return { playlists: d.playlists || [], isOwner: d.isOwner }; }); 
+    return api.request(url).then(function(d) { return { playlists: d.playlists || [], isOwner: d.isOwner }; });
   },
   create: function(roomId, name) { return api.request('/playlists', { method: 'POST', body: JSON.stringify({ roomId: roomId, name: name }) }).then(function(d) { return d.playlist; }); },
   update: function(playlistId, updates) { return api.request('/playlists/' + playlistId, { method: 'PUT', body: JSON.stringify(updates) }).then(function(d) { return d.playlist; }); },
@@ -195,11 +195,11 @@ api.files = {
       var formData = new FormData();
       formData.append('file', file);
       formData.append('roomId', roomId);
-      
+
       var token = api.getToken();
       var guestId = token ? null : api.getGuestId();
       if (guestId) formData.append('guestId', guestId);
-      
+
       fetch('/.netlify/functions/files', {
         method: 'POST',
         headers: token ? { 'Authorization': 'Bearer ' + token } : {},
@@ -227,44 +227,44 @@ api.files = {
 // ============================================
 function parseVideoUrl(url) {
   if (!url) return null;
-  
+
   // Blob URLs (local file uploads)
   if (url.startsWith('blob:')) {
     return { type: 'direct', id: url, url: url };
   }
-  
+
   // Uploaded files (stored in database)
   if (url.includes('/api/files/') || url.includes('/.netlify/functions/files/')) {
     var isAudio = url.match(/[?&]type=(audio|mp3|wav|m4a|flac|aac|ogg)/i);
     return { type: 'uploaded', id: url, url: url, isAudio: !!isAudio };
   }
-  
+
   // YouTube
   var ytMatch = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
   if (ytMatch) return { type: 'youtube', id: ytMatch[1], url: url };
-  
+
   // Vimeo
   var vimeoMatch = url.match(/vimeo\.com\/(\d+)/);
   if (vimeoMatch) return { type: 'vimeo', id: vimeoMatch[1], url: url };
-  
+
   // Direct video/audio files
   if (url.match(/\.(mp4|webm|ogg|ogv|avi|mov|mkv|m4v|mp3|wav|m4a|flac|aac)(\?|$)/i)) {
     return { type: 'direct', id: url, url: url };
   }
-  
+
   // Twitch
   var twitchMatch = url.match(/twitch\.tv\/(?:videos\/)?(\w+)/);
   if (twitchMatch) return { type: 'twitch', id: twitchMatch[1], url: url };
-  
+
   // Dailymotion
   var dmMatch = url.match(/dailymotion\.com\/video\/([a-zA-Z0-9]+)/);
   if (dmMatch) return { type: 'dailymotion', id: dmMatch[1], url: url };
-  
+
   // Any URL - treat as potential video
   if (url.startsWith('http://') || url.startsWith('https://')) {
     return { type: 'direct', id: url, url: url };
   }
-  
+
   return null;
 }
 
@@ -272,7 +272,7 @@ function getVideoThumbnail(url) {
   if (!url) return null;
   var parsed = parseVideoUrl(url);
   if (!parsed) return null;
-  
+
   if (parsed.type === 'youtube') {
     return 'https://img.youtube.com/vi/' + parsed.id + '/default.jpg';
   }
@@ -283,7 +283,7 @@ function getVideoThumbnail(url) {
   if (parsed.type === 'dailymotion') {
     return 'https://www.dailymotion.com/thumbnail/video/' + parsed.id;
   }
-  
+
   return null;
 }
 
@@ -368,7 +368,7 @@ var videoPlaybackTracker = {
   isPlaying: false,
   checkInterval: null,
   videoDuration: 0,
-  
+
   start: function(durationSeconds, onEnded) {
     this.stop(); // Clear any existing
     this.expectedEndTime = Date.now() + (durationSeconds * 1000);
@@ -376,14 +376,14 @@ var videoPlaybackTracker = {
     this.isPlaying = true;
     this.videoDuration = durationSeconds;
     console.log('PlaybackTracker: Video will end in', durationSeconds.toFixed(1), 'seconds');
-    
+
     // Also set up a regular check (will be throttled in background but works when active)
     var self = this;
     this.checkInterval = setInterval(function() {
       self.checkEnded();
     }, 500);
   },
-  
+
   stop: function() {
     this.isPlaying = false;
     this.expectedEndTime = null;
@@ -394,7 +394,7 @@ var videoPlaybackTracker = {
       this.checkInterval = null;
     }
   },
-  
+
   pause: function() {
     this.isPlaying = false;
     if (this.checkInterval) {
@@ -402,12 +402,12 @@ var videoPlaybackTracker = {
       this.checkInterval = null;
     }
   },
-  
+
   resume: function(remainingSeconds, onEnded) {
     this.expectedEndTime = Date.now() + (remainingSeconds * 1000);
     this.callback = onEnded;
     this.isPlaying = true;
-    
+
     var self = this;
     if (!this.checkInterval) {
       this.checkInterval = setInterval(function() {
@@ -415,7 +415,7 @@ var videoPlaybackTracker = {
       }, 500);
     }
   },
-  
+
   updateTime: function(currentTime, duration) {
     if (duration > 0 && currentTime >= 0 && this.isPlaying) {
       var remaining = duration - currentTime;
@@ -423,7 +423,7 @@ var videoPlaybackTracker = {
       this.videoDuration = duration;
     }
   },
-  
+
   checkEnded: function() {
     if (this.expectedEndTime && this.isPlaying && Date.now() >= this.expectedEndTime) {
       console.log('PlaybackTracker: Video ended (interval check)');
@@ -432,7 +432,7 @@ var videoPlaybackTracker = {
       if (cb) cb();
     }
   },
-  
+
   // Called when tab becomes visible - this is the key for background tab support
   onVisible: function() {
     console.log('PlaybackTracker: Tab visible, checking...', {
@@ -441,7 +441,7 @@ var videoPlaybackTracker = {
       isPlaying: this.isPlaying,
       hasCallback: !!this.callback
     });
-    
+
     if (this.expectedEndTime && this.isPlaying && Date.now() >= this.expectedEndTime) {
       // Verify with actual player state before triggering - mobile browsers suspend video too
       if (globalYTPlayer.player && globalYTPlayer.isReady) {
@@ -449,7 +449,7 @@ var videoPlaybackTracker = {
           var playerState = globalYTPlayer.player.getPlayerState();
           var currentTime = globalYTPlayer.player.getCurrentTime();
           var duration = globalYTPlayer.player.getDuration();
-          
+
           // Only trigger if video truly ended (state 0 and at end)
           if (playerState !== 0 || (duration > 0 && currentTime < duration - 1)) {
             console.log('PlaybackTracker: Timer expired but video still playing (state:', playerState, ', time:', currentTime, '/', duration, ')');
@@ -465,7 +465,7 @@ var videoPlaybackTracker = {
           console.log('PlaybackTracker: Could not verify player state:', e);
         }
       }
-      
+
       console.log('PlaybackTracker: Video ended while in background, triggering callback!');
       var cb = this.callback;
       this.stop();
@@ -507,7 +507,7 @@ var globalPlaylist = {
   onVideoChange: null, // Callback to sync React state when tab becomes active
   pendingVideo: null,  // Video that changed in background, waiting for tab visibility
   pendingIndex: null,  // Index of pending video
-  
+
   setPlaylist: function(videos, index) {
     // Only update and log if values actually changed
     if (this.videos === videos && this.currentIndex === index) return;
@@ -515,38 +515,38 @@ var globalPlaylist = {
     this.currentIndex = index >= 0 ? index : -1;
     console.log('GlobalPlaylist: Set', this.videos.length, 'videos, index:', this.currentIndex);
   },
-  
+
   setIndex: function(index) {
     this.currentIndex = index;
   },
-  
+
   setOptions: function(autoplay, shuffle, loop) {
     this.autoplay = autoplay;
     this.shuffle = shuffle;
     this.loop = loop;
   },
-  
+
   getNextVideo: function() {
     console.log('GlobalPlaylist.getNextVideo: videos=' + this.videos.length + ', index=' + this.currentIndex + ', autoplay=' + this.autoplay + ', shuffle=' + this.shuffle + ', loop=' + this.loop);
-    
+
     if (this.videos.length === 0) {
       console.log('GlobalPlaylist: No videos in playlist');
       return null;
     }
-    
+
     // Loop: replay current video
     if (this.loop && this.currentIndex >= 0 && this.currentIndex < this.videos.length) {
       console.log('GlobalPlaylist: Loop mode - replaying current video');
       return { video: this.videos[this.currentIndex], index: this.currentIndex, isLoop: true };
     }
-    
+
     // Shuffle: random video
     if (this.shuffle) {
       var availableIndices = [];
       for (var i = 0; i < this.videos.length; i++) {
         if (i !== this.currentIndex) availableIndices.push(i);
       }
-      
+
       if (availableIndices.length > 0) {
         var randomIdx = availableIndices[Math.floor(Math.random() * availableIndices.length)];
         this.currentIndex = randomIdx;
@@ -559,14 +559,14 @@ var globalPlaylist = {
       console.log('GlobalPlaylist: Shuffle mode but no available videos');
       return null;
     }
-    
+
     // Autoplay: next video
     if (this.autoplay && this.currentIndex < this.videos.length - 1) {
       this.currentIndex++;
       console.log('GlobalPlaylist: Autoplay mode - playing next video at index', this.currentIndex);
       return { video: this.videos[this.currentIndex], index: this.currentIndex };
     }
-    
+
     console.log('GlobalPlaylist: No next video (autoplay=' + this.autoplay + ', index=' + this.currentIndex + '/' + this.videos.length + ')');
     return null;
   }
@@ -577,7 +577,7 @@ var globalYTPlayer = {
   isReady: false,
   lastLoadedId: null,
   onVideoEndCallback: null,
-  
+
   // Directly load and play next video (bypasses React state)
   playNextVideo: function() {
     var next = globalPlaylist.getNextVideo();
@@ -585,7 +585,7 @@ var globalYTPlayer = {
       console.log('GlobalYT: No next video to play');
       return false;
     }
-    
+
     var parsed = parseVideoUrl(next.video.url);
     if (!parsed || parsed.type !== 'youtube') {
       console.log('GlobalYT: Next video is not YouTube:', next.video.url);
@@ -595,9 +595,9 @@ var globalYTPlayer = {
       }
       return false;
     }
-    
+
     console.log('GlobalYT: Playing next video directly:', parsed.id, 'index:', next.index);
-    
+
     if (next.isLoop) {
       // For loop, seek to beginning
       if (this.player && this.isReady) {
@@ -608,21 +608,21 @@ var globalYTPlayer = {
       // Load new video
       this.loadVideo(parsed.id);
     }
-    
+
     // Notify React to sync UI (will be processed when tab is active)
     if (globalPlaylist.onVideoChange) {
       globalPlaylist.onVideoChange(next.video, next.index);
     }
-    
+
     return true;
   },
-  
+
   loadVideo: function(videoId) {
     if (this.player && this.isReady) {
       console.log('GlobalYT: Loading video:', videoId);
       this.lastLoadedId = videoId;
       this.player.loadVideoById(videoId, 0);
-      
+
       // Ensure video plays - loadVideoById should autoplay but may not in background
       var self = this;
       setTimeout(function() {
@@ -639,7 +639,7 @@ var globalYTPlayer = {
           }
         }
       }, 500);
-      
+
       return true;
     }
     return false;
@@ -653,7 +653,7 @@ function YouTubePlayer(props) {
   var onStateChange = props.onStateChange;
   var onSeek = props.onSeek;
   var onEnded = props.onEnded;
-  
+
   var containerRef = useRef(null);
   var playerRef = useRef(null);
   var isReady = useRef(false);
@@ -664,31 +664,31 @@ function YouTubePlayer(props) {
   var workerRef = useRef(null);
   var lastReportedSeek = useRef(0);
   var handledEnded = useRef(false); // Track if we've handled the ended event for current video
-  
+
   // Use refs to track latest props for use in callbacks
   var latestStateRef = useRef(playbackState);
   var latestTimeRef = useRef(playbackTime);
   var onEndedRef = useRef(onEnded);
   var onStateChangeRef = useRef(onStateChange);
   var onSeekRef = useRef(onSeek);
-  
+
   // Keep refs updated
   useEffect(function() {
     latestStateRef.current = playbackState;
   }, [playbackState]);
-  
+
   useEffect(function() {
     latestTimeRef.current = playbackTime;
   }, [playbackTime]);
-  
+
   useEffect(function() {
     onEndedRef.current = onEnded;
   }, [onEnded]);
-  
+
   useEffect(function() {
     onStateChangeRef.current = onStateChange;
   }, [onStateChange]);
-  
+
   useEffect(function() {
     onSeekRef.current = onSeek;
   }, [onSeek]);
@@ -696,7 +696,7 @@ function YouTubePlayer(props) {
   // Load YouTube API once
   useEffect(function() {
     if (window.YT && window.YT.Player) return;
-    
+
     if (!document.getElementById('youtube-api')) {
       var tag = document.createElement('script');
       tag.id = 'youtube-api';
@@ -709,7 +709,7 @@ function YouTubePlayer(props) {
   useEffect(function() {
     // Reset ended flag for new video
     handledEnded.current = false;
-    
+
     // Set up Web Worker for reliable background tab timing
     // Workers are NOT throttled in background tabs
     var workerCode = 'setInterval(function(){postMessage("tick")},500)';
@@ -717,7 +717,7 @@ function YouTubePlayer(props) {
     var workerUrl = URL.createObjectURL(blob);
     var worker = new Worker(workerUrl);
     workerRef.current = worker;
-    
+
     worker.onmessage = function() {
       if (!playerRef.current || !isReady.current) return;
       try {
@@ -726,52 +726,52 @@ function YouTubePlayer(props) {
         var dur = playerRef.current.getDuration();
         var atEnd = dur > 0 && ct > 0 && ct >= (dur - 0.5);
         var ended = ps === 0 || ((ps === 2 || ps === -1) && atEnd);
-        
+
         if (ended && onEndedRef.current && !handledEnded.current) {
           console.log('YT: Video ended (worker) state:', ps, 'time:', ct, '/', dur);
           handledEnded.current = true;
           onEndedRef.current();
         }
-        
+
         // Reset flag when video is playing and not near end
         if (ps === 1 && dur > 0 && (dur - ct) > 3) {
           handledEnded.current = false;
         }
       } catch (e) {}
     };
-    
+
     // Also set up setTimeout-based check
     function checkPlayerState() {
       if (!playerRef.current || !isReady.current) {
         seekCheckInterval.current = setTimeout(checkPlayerState, 200);
         return;
       }
-      
+
       try {
         var currentTime = playerRef.current.getCurrentTime();
         var duration = playerRef.current.getDuration();
         var playerState = playerRef.current.getPlayerState();
-        
+
         var isStateEnded = playerState === 0;
         var isAtEnd = duration > 0 && currentTime > 0 && currentTime >= (duration - 0.5);
         var isPausedAtEnd = (playerState === 2 || playerState === -1) && isAtEnd;
-        
+
         if ((isStateEnded || isPausedAtEnd) && onEndedRef.current && !handledEnded.current) {
           console.log('YT: Video ended (check) state:', playerState, 'time:', currentTime.toFixed(1));
           handledEnded.current = true;
           onEndedRef.current();
           return;
         }
-        
+
         if (playerState === 1 && duration > 0 && (duration - currentTime) > 3) {
           handledEnded.current = false;
         }
       } catch (e) {}
-      
+
       seekCheckInterval.current = setTimeout(checkPlayerState, 200);
     }
     seekCheckInterval.current = setTimeout(checkPlayerState, 200);
-    
+
     // If player already exists, just load the new video (unless already loaded directly)
     if (playerRef.current && isReady.current) {
       // Skip if this video was already loaded directly via globalYTPlayer
@@ -780,12 +780,12 @@ function YouTubePlayer(props) {
         globalYTPlayer.lastLoadedId = null; // Clear for next time
         return;
       }
-      
+
       console.log('Loading new video:', videoId);
       var currentState = latestStateRef.current;
       lastKnownTime.current = 0;
       lastReportedSeek.current = 0;
-      
+
       if (currentState === 'playing') {
         playerRef.current.loadVideoById(videoId, 0);
       } else {
@@ -793,14 +793,14 @@ function YouTubePlayer(props) {
       }
       return;
     }
-    
+
     function initPlayer() {
       if (!containerRef.current || playerRef.current) return;
-      
+
       // Use refs to get latest values (props might be stale in closure)
       var currentState = latestStateRef.current;
       var currentTime = latestTimeRef.current || 0;
-      
+
       playerRef.current = new window.YT.Player(containerRef.current, {
         videoId: videoId,
         playerVars: {
@@ -816,28 +816,28 @@ function YouTubePlayer(props) {
             // Use refs for latest values at time of ready
             var latestState = latestStateRef.current;
             var latestTime = latestTimeRef.current || 0;
-            
+
             console.log('YT Player ready, time:', latestTime.toFixed(1), 'state:', latestState);
             isReady.current = true;
-            
+
             // Set global reference for direct control in background tabs
             globalYTPlayer.player = playerRef.current;
             globalYTPlayer.isReady = true;
-            
+
             // Apply saved volume from localStorage
             var savedVolume = parseInt(localStorage.getItem('multiview_volume') || '100', 10);
             try {
               playerRef.current.setVolume(savedVolume);
             } catch (e) {}
-            
+
             lastKnownTime.current = latestTime;
-            
+
             // Seek to the exact time (start param only handles whole seconds)
             if (latestTime > 1) {
               console.log('>>> Initial seek to:', latestTime.toFixed(1));
               playerRef.current.seekTo(latestTime, true);
             }
-            
+
             // Apply correct playback state with retry
             function applyInitialState() {
               if (latestState === 'playing') {
@@ -851,21 +851,21 @@ function YouTubePlayer(props) {
                 playerRef.current.pauseVideo();
               }
             }
-            
+
             applyInitialState();
-            
+
             // Multiple retries to handle buffering states
             // Videos can get stuck in buffering (state 3) or unstarted (state -1)
             var retryCount = 0;
             var maxRetries = 5;
-            
+
             function retryPlayback() {
               retryCount++;
               if (retryCount > maxRetries || !playerRef.current || !isReady.current) return;
-              
+
               var state = playerRef.current.getPlayerState();
               console.log('>>> Playback check #' + retryCount + ' (state:', state, ', target:', latestState, ')');
-              
+
               if (latestState === 'playing') {
                 // States: -1=unstarted, 0=ended, 1=playing, 2=paused, 3=buffering, 5=cued
                 if (state !== 1) {
@@ -884,10 +884,10 @@ function YouTubePlayer(props) {
                 }
               }
             }
-            
+
             // Start retry loop after initial delay
             setTimeout(retryPlayback, 500);
-            
+
             // Monitor for seeks and video end
             // Using setTimeout chain for better background tab support
             function checkPlayerState() {
@@ -899,36 +899,36 @@ function YouTubePlayer(props) {
                 seekCheckInterval.current = setTimeout(checkPlayerState, 200);
                 return;
               }
-              
+
               try {
                 var currentTime = playerRef.current.getCurrentTime();
                 var duration = playerRef.current.getDuration();
                 var expectedTime = lastKnownTime.current;
                 var playerState = playerRef.current.getPlayerState();
-                
+
                 // Check for video ended - multiple detection methods
                 var isStateEnded = playerState === 0;
                 var isAtEnd = duration > 0 && currentTime > 0 && currentTime >= (duration - 0.5);
                 var isPausedAtEnd = (playerState === 2 || playerState === -1) && isAtEnd;
-                
+
                 if ((isStateEnded || isPausedAtEnd) && onEndedRef.current && !handledEnded.current) {
                   console.log('YT: Video ended (check - state:', playerState, 'time:', currentTime.toFixed(1), '/', duration.toFixed(1), ')');
                   handledEnded.current = true;
                   onEndedRef.current();
                   return;
                 }
-                
+
                 // Reset handledEnded flag when video is playing and not near end
                 if (playerState === 1 && duration > 0 && (duration - currentTime) > 3) {
                   handledEnded.current = false;
                 }
-                
+
                 if (playerState === 1) {
                   expectedTime += 0.25;
                 }
-                
+
                 var timeDiff = Math.abs(currentTime - expectedTime);
-                
+
                 if (timeDiff > 1 && Math.abs(currentTime - lastReportedSeek.current) > 1) {
                   console.log('YT: User seeked to', currentTime.toFixed(1));
                   lastReportedSeek.current = currentTime;
@@ -940,27 +940,27 @@ function YouTubePlayer(props) {
                 }
                 lastKnownTime.current = currentTime;
               } catch (e) {}
-              
+
               seekCheckInterval.current = setTimeout(checkPlayerState, 200);
             }
-            
+
             seekCheckInterval.current = setTimeout(checkPlayerState, 200);
-            
+
           },
           onStateChange: function(event) {
             // YT states: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering
-            
+
             // ALWAYS handle ended event - even if it seems like it came from our command
             if (event.data === 0) {
               console.log('YT: ===== VIDEO ENDED (state=0) =====');
               videoPlaybackTracker.stop();
               handledEnded.current = true;
-              
+
               // DIRECTLY play next video - bypasses React state which is throttled in background tabs
               console.log('YT: Calling globalYTPlayer.playNextVideo()');
               var played = globalYTPlayer.playNextVideo();
               console.log('YT: playNextVideo returned:', played);
-              
+
               if (!played) {
                 // No next video or not YouTube, call the regular callback
                 console.log('YT: Falling back to onEndedRef.current');
@@ -970,17 +970,17 @@ function YouTubePlayer(props) {
               }
               return; // Always return after handling ended
             }
-            
+
             // Ignore other events triggered by our commands
             if (Date.now() - lastCommandTime.current < 300) return;
-            
+
             if (event.data === 1 && onStateChangeRef.current) {
               var time = playerRef.current.getCurrentTime();
               var duration = playerRef.current.getDuration();
               console.log('YT: Playing at', time.toFixed(1), 'duration:', duration.toFixed(1));
               lastKnownTime.current = time;
               handledEnded.current = false;
-              
+
               // Start background-safe timer for video end
               if (duration > 0) {
                 var remaining = duration - time;
@@ -999,7 +999,7 @@ function YouTubePlayer(props) {
                   }
                 });
               }
-              
+
               onStateChangeRef.current('playing', time);
             } else if (event.data === 2 && onStateChangeRef.current) {
               var time = playerRef.current.getCurrentTime();
@@ -1034,7 +1034,7 @@ function YouTubePlayer(props) {
       }
     };
   }, [videoId]);
-  
+
   // Cleanup player only on unmount
   useEffect(function() {
     return function() {
@@ -1054,7 +1054,7 @@ function YouTubePlayer(props) {
     function handleVisibilityChange() {
       if (document.visibilityState === 'visible' && playerRef.current && isReady.current) {
         console.log('YT Visibility: Tab became visible, checking player state...');
-        
+
         // If there's a pending video change, the video already changed in background
         // Just ensure it's playing
         if (globalPlaylist.pendingVideo) {
@@ -1070,25 +1070,25 @@ function YouTubePlayer(props) {
           }
           return;
         }
-        
+
         try {
           var playerState = playerRef.current.getPlayerState();
           var currentTime = playerRef.current.getCurrentTime();
           var duration = playerRef.current.getDuration();
-          
+
           console.log('YT Visibility: state=' + playerState + ', time=' + currentTime.toFixed(1) + '/' + duration.toFixed(1) + ', handledEnded=' + handledEnded.current);
-          
+
           // Only handle truly ended state (0) - don't trigger on paused state
           // Mobile browsers may report paused state when tab was suspended
           var isStateEnded = playerState === 0;
           var isAtEnd = duration > 0 && currentTime > 0 && currentTime >= (duration - 0.5);
-          
+
           // Only play next if video truly ended AND is at the end
           if (isStateEnded && isAtEnd && !handledEnded.current) {
             console.log('YT Visibility: Video ended while in background! Playing next...');
             handledEnded.current = true;
             videoPlaybackTracker.stop();
-            
+
             // Directly play next video
             if (!globalYTPlayer.playNextVideo()) {
               // Fallback to regular callback
@@ -1102,7 +1102,7 @@ function YouTubePlayer(props) {
         }
       }
     }
-    
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return function() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -1112,15 +1112,15 @@ function YouTubePlayer(props) {
   // Apply playback state changes from sync
   useEffect(function() {
     if (!isReady.current || !playerRef.current) return;
-    
+
     var retryCount = 0;
     var maxRetries = 5;
-    
+
     function applyState() {
       try {
         var currentState = playerRef.current.getPlayerState();
         // 1 = playing, 2 = paused, 3 = buffering, -1 = unstarted, 0 = ended
-        
+
         if (playbackState === 'playing' && currentState !== 1) {
           // Safeguard: Don't auto-play if video is at or near the end (state 0 = ended)
           // This prevents stale 'playing' state from triggering playback on finished videos
@@ -1132,11 +1132,11 @@ function YouTubePlayer(props) {
               return;
             }
           }
-          
+
           console.log('>>> Sending PLAY command (current state:', currentState, ')');
           lastCommandTime.current = Date.now();
           playerRef.current.playVideo();
-          
+
           // Schedule retry if still not playing
           scheduleRetry();
         } else if (playbackState === 'paused' && currentState !== 2 && currentState !== 0) {
@@ -1145,7 +1145,7 @@ function YouTubePlayer(props) {
           console.log('>>> Sending PAUSE command (current state:', currentState, ')');
           lastCommandTime.current = Date.now();
           playerRef.current.pauseVideo();
-          
+
           // Schedule retry if still not paused
           scheduleRetry();
         }
@@ -1153,16 +1153,16 @@ function YouTubePlayer(props) {
         console.error('YT command error:', e);
       }
     }
-    
+
     function scheduleRetry() {
       if (retryCount >= maxRetries) return;
-      
+
       setTimeout(function() {
         retryCount++;
         if (!playerRef.current || !isReady.current) return;
-        
+
         var state = playerRef.current.getPlayerState();
-        
+
         if (playbackState === 'playing' && state !== 1) {
           // Don't retry if video is at end
           if (state === 0) {
@@ -1185,7 +1185,7 @@ function YouTubePlayer(props) {
         }
       }, 800);
     }
-    
+
     applyState();
   }, [playbackState]);
 
@@ -1193,11 +1193,11 @@ function YouTubePlayer(props) {
   useEffect(function() {
     if (!isReady.current || !playerRef.current) return;
     if (playbackTime === undefined || playbackTime === null) return;
-    
+
     try {
       var currentTime = playerRef.current.getCurrentTime();
       var timeDiff = Math.abs(currentTime - playbackTime);
-      
+
       // Sync if difference is more than 1.5 seconds
       if (timeDiff > 1) {
         console.log('>>> Seeking to synced time:', playbackTime.toFixed(1), '(was at', currentTime.toFixed(1), ')');
@@ -1228,43 +1228,43 @@ function VideoPlayer(props) {
   var onSeek = props.onSeek;
   var onEnded = props.onEnded;
   var isLocalChange = props.isLocalChange;
-  
+
   var videoRef = useRef(null);
   var ignoreNextEvent = useRef(false);
 
   // Direct video element handlers
   useEffect(function() {
     if (!videoRef.current) return;
-    
+
     function handlePlay() {
       if (ignoreNextEvent.current) { ignoreNextEvent.current = false; return; }
       console.log('Direct video: play at', videoRef.current.currentTime);
       onStateChange('playing', videoRef.current.currentTime);
     }
-    
+
     function handlePause() {
       if (ignoreNextEvent.current) { ignoreNextEvent.current = false; return; }
       console.log('Direct video: pause at', videoRef.current.currentTime);
       onStateChange('paused', videoRef.current.currentTime);
     }
-    
+
     function handleSeeked() {
       if (ignoreNextEvent.current) { ignoreNextEvent.current = false; return; }
       var state = videoRef.current.paused ? 'paused' : 'playing';
       console.log('Direct video: seeked to', videoRef.current.currentTime);
       onStateChange(state, videoRef.current.currentTime);
     }
-    
+
     function handleEnded() {
       console.log('Direct video: ended');
       if (onEnded) onEnded();
     }
-    
+
     videoRef.current.addEventListener('play', handlePlay);
     videoRef.current.addEventListener('pause', handlePause);
     videoRef.current.addEventListener('seeked', handleSeeked);
     videoRef.current.addEventListener('ended', handleEnded);
-    
+
     return function() {
       if (videoRef.current) {
         videoRef.current.removeEventListener('play', handlePlay);
@@ -1278,14 +1278,14 @@ function VideoPlayer(props) {
   // Apply remote state to direct video
   useEffect(function() {
     if (!videoRef.current || isLocalChange) return;
-    
+
     var timeDiff = Math.abs(videoRef.current.currentTime - playbackTime);
-    
+
     if (timeDiff > 1) {
       ignoreNextEvent.current = true;
       videoRef.current.currentTime = playbackTime;
     }
-    
+
     if (playbackState === 'playing' && videoRef.current.paused) {
       ignoreNextEvent.current = true;
       videoRef.current.play().catch(function() {});
@@ -1305,7 +1305,7 @@ function VideoPlayer(props) {
 
   var parsed = parseVideoUrl(video.url);
   // console.log('VideoPlayer rendering:', video.url, 'parsed:', parsed);
-  
+
   if (!parsed) return React.createElement('div', { className: 'video-error' }, 'Invalid video URL');
 
   if (parsed.type === 'youtube') {
@@ -1321,53 +1321,53 @@ function VideoPlayer(props) {
       })
     );
   }
-  
+
   if (parsed.type === 'vimeo') {
-    return React.createElement('iframe', { 
-      key: video.url, 
-      src: 'https://player.vimeo.com/video/' + parsed.id + '?autoplay=1', 
-      allow: 'autoplay; fullscreen', 
-      allowFullScreen: true, 
-      className: 'video-frame' 
+    return React.createElement('iframe', {
+      key: video.url,
+      src: 'https://player.vimeo.com/video/' + parsed.id + '?autoplay=1',
+      allow: 'autoplay; fullscreen',
+      allowFullScreen: true,
+      className: 'video-frame'
     });
   }
-  
+
   // Uploaded files (from database)
   if (parsed.type === 'uploaded') {
-    var isAudioFile = parsed.isAudio || 
+    var isAudioFile = parsed.isAudio ||
                       video.isAudio ||
                       video.url.match(/[?&]type=audio/i) ||
                       (video.title && video.title.match(/\.(mp3|wav|m4a|flac|aac|ogg)$/i));
-    
+
     // Get file extension for display
     var fileExt = video.title ? video.title.split('.').pop().toUpperCase() : 'AUDIO';
-    
+
     if (isAudioFile) {
       return React.createElement('div', { className: 'uploaded-player audio-player' },
         React.createElement('div', { className: 'audio-visualizer' },
           React.createElement('div', { className: 'visualizer-bars' },
             Array.from({ length: 20 }, function(_, i) {
-              return React.createElement('div', { 
-                key: i, 
-                className: 'bar', 
-                style: { animationDelay: (i * 0.05) + 's' } 
+              return React.createElement('div', {
+                key: i,
+                className: 'bar',
+                style: { animationDelay: (i * 0.05) + 's' }
               });
             })
           )
         ),
         React.createElement('div', { className: 'audio-info' },
-          React.createElement('div', { className: 'file-badge' }, 
+          React.createElement('div', { className: 'file-badge' },
             React.createElement('span', { className: 'file-icon' }, '📁'),
             React.createElement('span', { className: 'file-type' }, fileExt)
           ),
           React.createElement('h3', { className: 'audio-title' }, video.title || 'Uploaded Audio')
         ),
         React.createElement('div', { className: 'audio-controls-wrapper' },
-          React.createElement('audio', { 
+          React.createElement('audio', {
             ref: videoRef,
-            key: video.url, 
-            src: video.url, 
-            controls: true, 
+            key: video.url,
+            src: video.url,
+            controls: true,
             autoPlay: playbackState === 'playing',
             onPlay: function() { if (onStateChange) onStateChange('playing'); },
             onPause: function() { if (onStateChange) onStateChange('paused'); },
@@ -1377,19 +1377,19 @@ function VideoPlayer(props) {
         )
       );
     }
-    
+
     // Uploaded video file
     return React.createElement('div', { className: 'uploaded-player video-player-wrapper' },
-      React.createElement('video', { 
+      React.createElement('video', {
         ref: videoRef,
-        key: video.url, 
-        src: video.url, 
-        controls: true, 
+        key: video.url,
+        src: video.url,
+        controls: true,
         autoPlay: playbackState === 'playing',
         onPlay: function() { if (onStateChange) onStateChange('playing'); },
         onPause: function() { if (onStateChange) onStateChange('paused'); },
         onEnded: function() { if (onEnded) onEnded(); },
-        className: 'uploaded-video' 
+        className: 'uploaded-video'
       }),
       React.createElement('div', { className: 'video-overlay-info' },
         React.createElement('span', { className: 'file-badge small' },
@@ -1399,60 +1399,60 @@ function VideoPlayer(props) {
       )
     );
   }
-  
+
   if (parsed.type === 'direct') {
     // Check if it is an audio file - use isAudio flag, URL extension, or title extension
-    var isAudio = video.isAudio || 
-                  video.url.match(/\.(mp3|wav|m4a|flac|aac|ogg)$/i) || 
+    var isAudio = video.isAudio ||
+                  video.url.match(/\.(mp3|wav|m4a|flac|aac|ogg)$/i) ||
                   (video.title && video.title.match(/\.(mp3|wav|m4a|flac|aac|ogg)$/i));
-    
+
     if (isAudio) {
       return React.createElement('div', { className: 'video-placeholder' },
         React.createElement('div', { style: { fontSize: '48px' } }, '🎵'),
         React.createElement('p', null, video.title),
-        React.createElement('audio', { 
+        React.createElement('audio', {
           ref: videoRef,
-          key: video.url, 
-          src: video.url, 
-          controls: true, 
-          autoPlay: playbackState === 'playing', 
-          style: { width: '80%', maxWidth: '400px' } 
+          key: video.url,
+          src: video.url,
+          controls: true,
+          autoPlay: playbackState === 'playing',
+          style: { width: '80%', maxWidth: '400px' }
         })
       );
     }
-    
+
     // Video file (including blob URLs)
-    return React.createElement('video', { 
+    return React.createElement('video', {
       ref: videoRef,
-      key: video.url, 
-      src: video.url, 
-      controls: true, 
-      autoPlay: playbackState === 'playing', 
-      className: 'video-frame' 
+      key: video.url,
+      src: video.url,
+      controls: true,
+      autoPlay: playbackState === 'playing',
+      className: 'video-frame'
     });
   }
-  
+
   // For Twitch, Dailymotion, or other embedded content
   if (parsed.type === 'twitch') {
-    return React.createElement('iframe', { 
-      key: video.url, 
-      src: 'https://player.twitch.tv/?channel=' + parsed.id + '&parent=' + window.location.hostname, 
-      allow: 'autoplay; fullscreen', 
-      allowFullScreen: true, 
-      className: 'video-frame' 
+    return React.createElement('iframe', {
+      key: video.url,
+      src: 'https://player.twitch.tv/?channel=' + parsed.id + '&parent=' + window.location.hostname,
+      allow: 'autoplay; fullscreen',
+      allowFullScreen: true,
+      className: 'video-frame'
     });
   }
-  
+
   if (parsed.type === 'dailymotion') {
-    return React.createElement('iframe', { 
-      key: video.url, 
-      src: 'https://www.dailymotion.com/embed/video/' + parsed.id + '?autoplay=1', 
-      allow: 'autoplay; fullscreen', 
-      allowFullScreen: true, 
-      className: 'video-frame' 
+    return React.createElement('iframe', {
+      key: video.url,
+      src: 'https://www.dailymotion.com/embed/video/' + parsed.id + '?autoplay=1',
+      allow: 'autoplay; fullscreen',
+      allowFullScreen: true,
+      className: 'video-frame'
     });
   }
-  
+
   return React.createElement('div', { className: 'video-error' }, 'Unsupported format');
 }
 
@@ -1467,19 +1467,19 @@ function ConnectedUsers(props) {
   var onKick = props.onKick;
   var onRename = props.onRename;
   var onColorChange = props.onColorChange;
-  
+
   var _contextMenu = useState(null);
   var contextMenu = _contextMenu[0];
   var setContextMenu = _contextMenu[1];
-  
+
   var _renameModal = useState(null);
   var renameModal = _renameModal[0];
   var setRenameModal = _renameModal[1];
-  
+
   var _colorModal = useState(null);
   var colorModal = _colorModal[0];
   var setColorModal = _colorModal[1];
-  
+
   var _renameValue = useState('');
   var renameValue = _renameValue[0];
   var setRenameValue = _renameValue[1];
@@ -1535,7 +1535,7 @@ function ConnectedUsers(props) {
 
   var onlineUsers = users.filter(function(u) { return u.status === 'online'; });
   var offlineUsers = users.filter(function(u) { return u.status !== 'online'; });
-  
+
   function sortUsers(list) {
     return list.slice().sort(function(a, b) {
       if (a.isOwner && !b.isOwner) return -1;
@@ -1543,7 +1543,7 @@ function ConnectedUsers(props) {
       return (a.displayName || '').localeCompare(b.displayName || '');
     });
   }
-  
+
   var sortedOnline = sortUsers(onlineUsers);
   var sortedOffline = sortUsers(offlineUsers);
 
@@ -1553,7 +1553,7 @@ function ConnectedUsers(props) {
     var isGuest = user.guestId || (visId && visId.startsWith && visId.startsWith('guest_'));
     var statusClass = user.status || 'offline';
     var badgeStyle = user.color ? { background: user.color } : {};
-    
+
     return React.createElement('div', {
       key: visId,
       className: 'user-badge ' + statusClass + (isYou ? ' is-you' : '') + (user.isOwner ? ' is-owner' : ''),
@@ -1574,7 +1574,7 @@ function ConnectedUsers(props) {
       React.createElement('span', { className: 'online-count' }, React.createElement('span', { className: 'count' }, sortedOnline.length), ' online')
     ),
     React.createElement('div', { className: 'users-list' },
-      sortedOnline.length === 0 && sortedOffline.length === 0 
+      sortedOnline.length === 0 && sortedOffline.length === 0
         ? React.createElement('div', { className: 'no-users' }, 'No one here yet')
         : React.createElement(React.Fragment, null,
             sortedOnline.map(renderUser),
@@ -1582,17 +1582,17 @@ function ConnectedUsers(props) {
             sortedOffline.map(renderUser)
           )
     ),
-    
+
     // Context menu
-    contextMenu && React.createElement('div', { 
-      className: 'context-menu', 
+    contextMenu && React.createElement('div', {
+      className: 'context-menu',
       style: { position: 'fixed', top: contextMenu.y, left: contextMenu.x, zIndex: 10000 },
       onClick: function(e) { e.stopPropagation(); }
     },
-      canEditUser(contextMenu.user) && React.createElement('button', { className: 'context-menu-item', onClick: function() { openRenameModal(contextMenu.user); } }, 
+      canEditUser(contextMenu.user) && React.createElement('button', { className: 'context-menu-item', onClick: function() { openRenameModal(contextMenu.user); } },
         React.createElement(Icon, { name: 'edit', size: 'sm' }), ' Rename'
       ),
-      canEditUser(contextMenu.user) && React.createElement('button', { className: 'context-menu-item', onClick: function() { openColorModal(contextMenu.user); } }, 
+      canEditUser(contextMenu.user) && React.createElement('button', { className: 'context-menu-item', onClick: function() { openColorModal(contextMenu.user); } },
         '🎨 Change Color'
       ),
       isHost && contextMenu.user.visitorId !== currentUserId && React.createElement('button', { className: 'context-menu-item danger', onClick: function() {
@@ -1603,7 +1603,7 @@ function ConnectedUsers(props) {
         setContextMenu(null);
       } }, React.createElement(Icon, { name: 'x', size: 'sm' }), ' Kick')
     ),
-    
+
     // Rename Modal
     renameModal && React.createElement('div', { className: 'modal-overlay', onClick: function() { setRenameModal(null); } },
       React.createElement('div', { className: 'modal settings-modal', onClick: function(e) { e.stopPropagation(); } },
@@ -1612,9 +1612,9 @@ function ConnectedUsers(props) {
         React.createElement('div', { className: 'settings-content' },
           React.createElement('div', { className: 'modal-input-group' },
             React.createElement('label', null, 'Display Name'),
-            React.createElement('input', { 
-              type: 'text', 
-              value: renameValue, 
+            React.createElement('input', {
+              type: 'text',
+              value: renameValue,
               onChange: function(e) { setRenameValue(e.target.value); },
               onKeyDown: function(e) { if (e.key === 'Enter') submitRename(); },
               autoFocus: true,
@@ -1625,7 +1625,7 @@ function ConnectedUsers(props) {
         )
       )
     ),
-    
+
     // Color Picker Modal
     colorModal && React.createElement('div', { className: 'modal-overlay', onClick: function() { setColorModal(null); } },
       React.createElement('div', { className: 'modal settings-modal', onClick: function(e) { e.stopPropagation(); } },
@@ -1654,36 +1654,36 @@ function VideoNotesEditor(props) {
   var onSave = props.onSave;
   var isOwner = props.isOwner;
   var displayName = props.displayName || 'Guest';
-  
+
   var _notes = useState(video ? (video.notes || '') : '');
   var notes = _notes[0];
   var setNotes = _notes[1];
-  
+
   var _hasChanges = useState(false);
   var hasChanges = _hasChanges[0];
   var setHasChanges = _hasChanges[1];
-  
+
   var _saving = useState(false);
   var saving = _saving[0];
   var setSaving = _saving[1];
-  
+
   // Track the last video ID to detect when we switch videos
   var lastVideoId = useRef(video ? video.id : null);
-  
+
   // Check if notes can be saved (needs valid database UUID)
   var canSave = video && video.id && video.id.length > 30; // UUIDs are 36 chars
-  
+
   // Normalize notes for comparison (null, undefined, '' all become '')
   var videoNotes = (video && video.notes) ? video.notes : '';
   var videoNotesUpdatedBy = (video && video.notesUpdatedBy) ? video.notesUpdatedBy : '';
-  
+
   // Update notes when video changes OR when video.notes is updated from sync
   useEffect(function() {
     if (!video) return;
-    
+
     var currentVideoId = video.id || video.url;
     var currentNotes = (video.notes || '');
-    
+
     // If video changed entirely, reset everything
     if (currentVideoId !== lastVideoId.current) {
       console.log('>>> VideoNotesEditor: Video changed, resetting notes');
@@ -1692,7 +1692,7 @@ function VideoNotesEditor(props) {
       setHasChanges(false);
       return;
     }
-    
+
     // Video is the same - check if notes changed externally (from sync)
     // Only update if user is NOT currently editing (hasChanges)
     if (!hasChanges && notes !== currentNotes) {
@@ -1700,12 +1700,12 @@ function VideoNotesEditor(props) {
       setNotes(currentNotes);
     }
   }, [video ? (video.id || video.url) : null, videoNotes, videoNotesUpdatedBy]);
-  
+
   function handleChange(e) {
     setNotes(e.target.value);
     setHasChanges(e.target.value !== (video.notes || ''));
   }
-  
+
   function handleSave() {
     if (!video || !hasChanges || !canSave) return;
     setSaving(true);
@@ -1715,7 +1715,7 @@ function VideoNotesEditor(props) {
       setHasChanges(false);
     }, 500);
   }
-  
+
   function handleKeyDown(e) {
     // Ctrl/Cmd + S to save
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -1723,25 +1723,25 @@ function VideoNotesEditor(props) {
       handleSave();
     }
   }
-  
+
   function formatDate(dateStr) {
     if (!dateStr) return '';
     var date = new Date(dateStr);
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
-  
+
   if (!video) {
     return React.createElement('div', { className: 'notes-empty' }, 'Select a video to view notes');
   }
-  
+
   // Check if notes are hidden from this user (non-owner viewing hidden notes)
   if (video.notesHidden && !isOwner) {
-    return React.createElement('div', { className: 'notes-empty' }, 
+    return React.createElement('div', { className: 'notes-empty' },
       React.createElement('p', null, '🔒 Notes are hidden'),
       React.createElement('p', { className: 'notes-hint' }, 'The room owner has hidden notes for this video')
     );
   }
-  
+
   // Check if video is not in playlist (can't save notes)
   if (!canSave) {
     return React.createElement('div', { className: 'video-notes-editor' },
@@ -1754,11 +1754,11 @@ function VideoNotesEditor(props) {
       )
     );
   }
-  
-  var lastEditInfo = video.notesUpdatedBy 
+
+  var lastEditInfo = video.notesUpdatedBy
     ? 'Last edited by ' + video.notesUpdatedBy + (video.notesUpdatedAt ? ' on ' + formatDate(video.notesUpdatedAt) : '')
     : null;
-  
+
   return React.createElement('div', { className: 'video-notes-editor' },
     React.createElement('div', { className: 'notes-video-info' },
       React.createElement('span', { className: 'notes-video-title' }, video.title || video.url),
@@ -1774,8 +1774,8 @@ function VideoNotesEditor(props) {
       }),
       React.createElement('div', { className: 'notes-actions' },
         React.createElement('span', { className: 'notes-hint' }, hasChanges ? 'Unsaved changes' : (notes ? 'All changes saved' : '')),
-        React.createElement('button', { 
-          className: 'btn sm primary', 
+        React.createElement('button', {
+          className: 'btn sm primary',
           onClick: handleSave,
           disabled: !hasChanges || saving || !canSave
         }, saving ? 'Saving...' : 'Save Notes')
@@ -1796,23 +1796,23 @@ function DraggableVideoList(props) {
   var onReorder = props.onReorder;
   var onCopy = props.onCopy;
   var sortMode = props.sortMode; // If set, dragging is disabled
-  
+
   var _dragItem = useState(null);
   var dragItem = _dragItem[0];
   var setDragItem = _dragItem[1];
-  
+
   var _dragOver = useState(null);
   var dragOver = _dragOver[0];
   var setDragOver = _dragOver[1];
-  
+
   var _editingId = useState(null);
   var editingId = _editingId[0];
   var setEditingId = _editingId[1];
-  
+
   var _editTitle = useState('');
   var editTitle = _editTitle[0];
   var setEditTitle = _editTitle[1];
-  
+
   var _contextMenu = useState(null);
   var contextMenu = _contextMenu[0];
   var setContextMenu = _contextMenu[1];
@@ -1843,11 +1843,11 @@ function DraggableVideoList(props) {
       setDragOver(null);
       return;
     }
-    
+
     var newVideos = videos.slice();
     var item = newVideos.splice(dragItem, 1)[0];
     newVideos.splice(index, 0, item);
-    
+
     onReorder(newVideos.map(function(v) { return v.id; }));
     setDragItem(null);
     setDragOver(null);
@@ -1888,9 +1888,9 @@ function DraggableVideoList(props) {
       var isEditing = editingId === v.id;
       var parsed = parseVideoUrl(v.url);
       var thumbnail = getVideoThumbnail(v.url);
-      
-      return React.createElement('div', { 
-        key: v.id, 
+
+      return React.createElement('div', {
+        key: v.id,
         className: 'video-item' + (isPlaying ? ' playing' : '') + (isDragging ? ' dragging' : '') + (isDragOver ? ' drag-over' : '') + (sortMode ? ' sorted' : ''),
         draggable: !isEditing && !sortMode,
         onDragStart: function(e) { if (!sortMode) handleDragStart(e, i, v); },
@@ -1901,16 +1901,16 @@ function DraggableVideoList(props) {
       },
         React.createElement('div', { className: 'video-item-top' },
           !sortMode && React.createElement('div', { className: 'drag-handle' }, React.createElement(Icon, { name: 'grip', size: 'sm' })),
-          thumbnail 
+          thumbnail
             ? React.createElement('img', { className: 'video-thumbnail', src: thumbnail, alt: '', onClick: function() { onPlay(v, i); } })
             : React.createElement('div', { className: 'video-thumbnail placeholder', onClick: function() { onPlay(v, i); } }, React.createElement(Icon, { name: 'play', size: 'sm' })),
-          isEditing 
+          isEditing
             ? React.createElement('input', {
                 className: 'video-edit-input',
                 value: editTitle,
                 onChange: function(e) { setEditTitle(e.target.value); },
                 onBlur: function() { saveRename(v.id); },
-                onKeyDown: function(e) { 
+                onKeyDown: function(e) {
                   if (e.key === 'Enter') saveRename(v.id);
                   if (e.key === 'Escape') { setEditingId(null); setEditTitle(''); }
                 },
@@ -1927,7 +1927,7 @@ function DraggableVideoList(props) {
         )
       );
     }),
-    
+
     // Context menu
     contextMenu && React.createElement('div', {
       className: 'context-menu',
@@ -1965,43 +1965,43 @@ function PlaylistPanel(props) {
   var isOwner = props.isOwner;
   var copiedVideo = props.copiedVideo;
   var onPaste = props.onPaste;
-  
+
   var _showCreate = useState(false);
   var showCreate = _showCreate[0];
   var setShowCreate = _showCreate[1];
-  
+
   var _newName = useState('');
   var newName = _newName[0];
   var setNewName = _newName[1];
-  
+
   var _editingId = useState(null);
   var editingId = _editingId[0];
   var setEditingId = _editingId[1];
-  
+
   var _editName = useState('');
   var editName = _editName[0];
   var setEditName = _editName[1];
-  
+
   var _dragItem = useState(null);
   var dragItem = _dragItem[0];
   var setDragItem = _dragItem[1];
-  
+
   var _dragOver = useState(null);
   var dragOver = _dragOver[0];
   var setDragOver = _dragOver[1];
-  
+
   var _videoDragOver = useState(null);
   var videoDragOver = _videoDragOver[0];
   var setVideoDragOver = _videoDragOver[1];
-  
+
   var _contextMenu = useState(null);
   var contextMenu = _contextMenu[0];
   var setContextMenu = _contextMenu[1];
-  
+
   var _showImport = useState(false);
   var showImport = _showImport[0];
   var setShowImport = _showImport[1];
-  
+
   var _importData = useState('');
   var importData = _importData[0];
   var setImportData = _importData[1];
@@ -2035,18 +2035,18 @@ function PlaylistPanel(props) {
     if (dragItem === null) return;
     setDragOver(index);
   }
-  
+
   function handleVideoDragOver(e, playlistId) {
     e.preventDefault();
     e.stopPropagation();
     setVideoDragOver(playlistId);
   }
-  
+
   function handleVideoDrop(e, playlist) {
     e.preventDefault();
     e.stopPropagation();
     setVideoDragOver(null);
-    
+
     try {
       var videoData = e.dataTransfer.getData('application/x-video-item');
       if (videoData && onAddVideoToPlaylist) {
@@ -2060,14 +2060,14 @@ function PlaylistPanel(props) {
 
   function handleDrop(e, index) {
     e.preventDefault();
-    
+
     // Check if this is a video drop
     var videoData = e.dataTransfer.getData('application/x-video-item');
     if (videoData) {
       setVideoDragOver(null);
       return; // Let handleVideoDrop handle it
     }
-    
+
     if (dragItem === null || dragItem === index) {
       setDragItem(null);
       setDragOver(null);
@@ -2080,12 +2080,12 @@ function PlaylistPanel(props) {
     setDragItem(null);
     setDragOver(null);
   }
-  
+
   function handleContextMenu(e, playlist) {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY, playlist: playlist });
   }
-  
+
   function handleExport(playlist) {
     var exportData = {
       name: playlist.name,
@@ -2101,7 +2101,7 @@ function PlaylistPanel(props) {
     a.click();
     URL.revokeObjectURL(url);
   }
-  
+
   function handleImportSubmit() {
     try {
       var data = JSON.parse(importData);
@@ -2119,14 +2119,14 @@ function PlaylistPanel(props) {
     React.createElement('div', { className: 'sidebar-header' },
       React.createElement('h3', null, 'Playlists'),
       React.createElement('div', { className: 'header-actions' },
-        React.createElement('button', { className: 'icon-btn sm', onClick: function() { setShowImport(true); }, title: 'Import playlist' }, 
+        React.createElement('button', { className: 'icon-btn sm', onClick: function() { setShowImport(true); }, title: 'Import playlist' },
           React.createElement(Icon, { name: 'upload', size: 'sm' })
         ),
-        React.createElement('button', { className: 'icon-btn sm', onClick: function() { setShowCreate(true); }, title: 'New playlist' }, 
+        React.createElement('button', { className: 'icon-btn sm', onClick: function() { setShowCreate(true); }, title: 'New playlist' },
           React.createElement(Icon, { name: 'plus', size: 'sm' })
         ),
-        props.onClose && React.createElement('button', { 
-          className: 'sidebar-close-btn', 
+        props.onClose && React.createElement('button', {
+          className: 'sidebar-close-btn',
           onClick: props.onClose,
           title: 'Close'
         }, React.createElement(Icon, { name: 'x', size: 'sm' }))
@@ -2140,10 +2140,10 @@ function PlaylistPanel(props) {
       )
     ),
     showImport && React.createElement('div', { className: 'create-playlist-form' },
-      React.createElement('textarea', { 
-        value: importData, 
-        onChange: function(e) { setImportData(e.target.value); }, 
-        placeholder: 'Paste playlist JSON here...', 
+      React.createElement('textarea', {
+        value: importData,
+        onChange: function(e) { setImportData(e.target.value); },
+        placeholder: 'Paste playlist JSON here...',
         rows: 4,
         style: { width: '100%', resize: 'vertical' }
       }),
@@ -2153,7 +2153,7 @@ function PlaylistPanel(props) {
       )
     ),
     React.createElement('div', { className: 'playlists-list' },
-      playlists.length === 0 
+      playlists.length === 0
         ? React.createElement('div', { className: 'empty-playlists' }, 'No playlists yet')
         : playlists.map(function(p, i) {
             var isActive = activePlaylist && activePlaylist.id === p.id;
@@ -2162,17 +2162,17 @@ function PlaylistPanel(props) {
             var isDragOver = dragOver === i;
             var isVideoDragOver = videoDragOver === p.id;
             var isHidden = p.hidden;
-            
-            return React.createElement('div', { 
-              key: p.id, 
+
+            return React.createElement('div', {
+              key: p.id,
               className: 'playlist-item' + (isActive ? ' active' : '') + (isDragging ? ' dragging' : '') + (isDragOver || isVideoDragOver ? ' drag-over' : '') + (isHidden ? ' hidden-playlist' : ''),
               draggable: !isEditing,
               onDragStart: function(e) { handleDragStart(e, i); },
-              onDragOver: function(e) { 
+              onDragOver: function(e) {
                 handleDragOver(e, i);
                 handleVideoDragOver(e, p.id);
               },
-              onDrop: function(e) { 
+              onDrop: function(e) {
                 handleDrop(e, i);
                 handleVideoDrop(e, p);
               },
@@ -2182,7 +2182,7 @@ function PlaylistPanel(props) {
             },
               React.createElement('div', { className: 'drag-handle' }, React.createElement(Icon, { name: 'grip', size: 'sm' })),
               isHidden && React.createElement('span', { className: 'hidden-indicator', title: 'Hidden from guests' }, React.createElement(Icon, { name: 'eyeOff', size: 'sm' })),
-              isEditing 
+              isEditing
                 ? React.createElement('input', { className: 'playlist-edit-input', value: editName, onChange: function(e) { setEditName(e.target.value); }, onBlur: function() { handleRename(p.id); }, onKeyDown: function(e) { if (e.key === 'Enter') handleRename(p.id); if (e.key === 'Escape') { setEditingId(null); setEditName(''); } }, autoFocus: true })
                 : React.createElement('button', { className: 'playlist-select', onClick: function() { onSelect(p); } },
                     React.createElement('span', { className: 'playlist-name', title: p.name }, p.name),
@@ -2195,7 +2195,7 @@ function PlaylistPanel(props) {
             );
           })
     ),
-    
+
     // Context menu
     contextMenu && React.createElement('div', {
       className: 'context-menu',
@@ -2209,7 +2209,7 @@ function PlaylistPanel(props) {
         React.createElement(Icon, { name: 'clipboard', size: 'sm' }), ' Paste video here'
       ),
       isOwner && onHide && React.createElement('button', { className: 'context-menu-item', onClick: function() { onHide(contextMenu.playlist.id, !contextMenu.playlist.hidden); setContextMenu(null); } },
-        React.createElement(Icon, { name: contextMenu.playlist.hidden ? 'eye' : 'eyeOff', size: 'sm' }), 
+        React.createElement(Icon, { name: contextMenu.playlist.hidden ? 'eye' : 'eyeOff', size: 'sm' }),
         contextMenu.playlist.hidden ? ' Show to guests' : ' Hide from guests'
       ),
       React.createElement('button', { className: 'context-menu-item danger', onClick: function() { onDelete(contextMenu.playlist.id); setContextMenu(null); } },
@@ -2227,11 +2227,11 @@ function UserMenu(props) {
   var onSettings = props.onSettings;
   var onLogout = props.onLogout;
   var onHome = props.onHome;
-  
+
   var _open = useState(false);
   var open = _open[0];
   var setOpen = _open[1];
-  
+
   var ref = useRef(null);
 
   useEffect(function() {
@@ -2267,11 +2267,11 @@ function UserMenu(props) {
 function GuestMenu(props) {
   var displayName = props.displayName;
   var onCreateAccount = props.onCreateAccount;
-  
+
   var _open = useState(false);
   var open = _open[0];
   var setOpen = _open[1];
-  
+
   var ref = useRef(null);
 
   useEffect(function() {
@@ -2294,7 +2294,7 @@ function GuestMenu(props) {
         React.createElement('div', { className: 'name' }, displayName),
         React.createElement('div', { className: 'email guest-notice' }, 'Temporary account')
       ),
-      React.createElement('button', { className: 'dropdown-item primary', onClick: function() { onCreateAccount(); setOpen(false); } }, 
+      React.createElement('button', { className: 'dropdown-item primary', onClick: function() { onCreateAccount(); setOpen(false); } },
         React.createElement(Icon, { name: 'plus', size: 'sm' }), ' Create Account'
       ),
       React.createElement('div', { className: 'dropdown-hint' }, 'Save your display name and access your room history')
@@ -2309,44 +2309,44 @@ function SettingsContent(props) {
   var user = props.user;
   var onUpdate = props.onUpdate;
   var onLogout = props.onLogout;
-  
+
   var _tab = useState('profile');
   var tab = _tab[0];
   var setTab = _tab[1];
-  
+
   var _displayName = useState(user.displayName || '');
   var displayName = _displayName[0];
   var setDisplayName = _displayName[1];
-  
+
   var userThemeKey = 'theme_' + user.id;
   var _theme = useState(localStorage.getItem(userThemeKey) || 'gold');
   var theme = _theme[0];
   var setThemeState = _theme[1];
-  
+
   var _newEmail = useState('');
   var newEmail = _newEmail[0];
   var setNewEmail = _newEmail[1];
-  
+
   var _emailPassword = useState('');
   var emailPassword = _emailPassword[0];
   var setEmailPassword = _emailPassword[1];
-  
+
   var _currentPassword = useState('');
   var currentPassword = _currentPassword[0];
   var setCurrentPassword = _currentPassword[1];
-  
+
   var _newPassword = useState('');
   var newPassword = _newPassword[0];
   var setNewPassword = _newPassword[1];
-  
+
   var _confirmPassword = useState('');
   var confirmPassword = _confirmPassword[0];
   var setConfirmPassword = _confirmPassword[1];
-  
+
   var _message = useState(null);
   var message = _message[0];
   var setMessage = _message[1];
-  
+
   var _loading = useState(false);
   var loading = _loading[0];
   var setLoading = _loading[1];
@@ -2429,9 +2429,9 @@ function SettingsContent(props) {
   function handleDeleteAccount() {
     if (!confirm('Delete your account? This cannot be undone.')) return;
     setLoading(true);
-    api.auth.deleteAccount().then(onLogout).catch(function(err) { 
-      setMessage({ text: err.message, type: 'error' }); 
-      setLoading(false); 
+    api.auth.deleteAccount().then(onLogout).catch(function(err) {
+      setMessage({ text: err.message, type: 'error' });
+      setLoading(false);
     });
   }
 
@@ -2445,7 +2445,7 @@ function SettingsContent(props) {
       React.createElement('button', { className: 'settings-tab logout', onClick: onLogout }, 'Logout')
     ),
     message && React.createElement('div', { className: message.type === 'error' ? 'error-message' : 'success-message' }, message.text),
-    
+
     tab === 'profile' && React.createElement('div', { className: 'settings-section' },
       React.createElement('div', { className: 'input-group' },
         React.createElement('label', null, 'Display Name'),
@@ -2457,7 +2457,7 @@ function SettingsContent(props) {
       ),
       React.createElement('button', { className: 'btn primary', onClick: handleSaveProfile, disabled: loading }, loading ? 'Saving...' : 'Save Changes')
     ),
-    
+
     tab === 'email' && React.createElement('div', { className: 'settings-section' },
       React.createElement('div', { className: 'input-group' },
         React.createElement('label', null, 'Current Email'),
@@ -2473,7 +2473,7 @@ function SettingsContent(props) {
       ),
       React.createElement('button', { className: 'btn primary', onClick: handleChangeEmail, disabled: loading }, loading ? 'Updating...' : 'Update Email')
     ),
-    
+
     tab === 'password' && React.createElement('div', { className: 'settings-section' },
       React.createElement('div', { className: 'input-group' },
         React.createElement('label', null, 'Current Password'),
@@ -2489,7 +2489,7 @@ function SettingsContent(props) {
       ),
       React.createElement('button', { className: 'btn primary', onClick: handleChangePassword, disabled: loading }, loading ? 'Changing...' : 'Change Password')
     ),
-    
+
     tab === 'theme' && React.createElement('div', { className: 'settings-section' },
       React.createElement('p', { className: 'section-description' }, 'Choose your preferred color theme'),
       React.createElement('div', { className: 'theme-grid' },
@@ -2505,7 +2505,7 @@ function SettingsContent(props) {
         })
       )
     ),
-    
+
     tab === 'account' && React.createElement('div', { className: 'settings-section' },
       React.createElement('div', { className: 'danger-zone' },
         React.createElement('h4', null, '⚠️ Danger Zone'),
@@ -2521,45 +2521,45 @@ function SettingsModal(props) {
   var onClose = props.onClose;
   var onUpdate = props.onUpdate;
   var onLogout = props.onLogout;
-  
+
   var _tab = useState('profile');
   var tab = _tab[0];
   var setTab = _tab[1];
-  
+
   var _displayName = useState(user.displayName || '');
   var displayName = _displayName[0];
   var setDisplayName = _displayName[1];
-  
+
   // Use user-specific theme storage
   var userThemeKey = 'theme_' + user.id;
   var _theme = useState(localStorage.getItem(userThemeKey) || 'gold');
   var theme = _theme[0];
   var setThemeState = _theme[1];
-  
+
   var _newEmail = useState('');
   var newEmail = _newEmail[0];
   var setNewEmail = _newEmail[1];
-  
+
   var _emailPassword = useState('');
   var emailPassword = _emailPassword[0];
   var setEmailPassword = _emailPassword[1];
-  
+
   var _currentPassword = useState('');
   var currentPassword = _currentPassword[0];
   var setCurrentPassword = _currentPassword[1];
-  
+
   var _newPassword = useState('');
   var newPassword = _newPassword[0];
   var setNewPassword = _newPassword[1];
-  
+
   var _confirmPassword = useState('');
   var confirmPassword = _confirmPassword[0];
   var setConfirmPassword = _confirmPassword[1];
-  
+
   var _message = useState(null);
   var message = _message[0];
   var setMessage = _message[1];
-  
+
   var _loading = useState(false);
   var loading = _loading[0];
   var setLoading = _loading[1];
@@ -2656,7 +2656,7 @@ function SettingsModal(props) {
         React.createElement('button', { className: 'settings-tab' + (tab === 'theme' ? ' active' : ''), onClick: function() { setTab('theme'); setMessage(null); } }, 'Theme')
       ),
       message && React.createElement('div', { className: message.type === 'error' ? 'error-message' : 'success-message' }, message.text),
-      
+
       tab === 'profile' && React.createElement('div', { className: 'settings-content' },
         React.createElement('div', { className: 'modal-input-group' },
           React.createElement('label', null, 'Display Name'),
@@ -2664,7 +2664,7 @@ function SettingsModal(props) {
         ),
         React.createElement('button', { className: 'btn primary', onClick: handleSaveProfile, disabled: loading }, loading ? 'Saving...' : 'Save Changes')
       ),
-      
+
       tab === 'email' && React.createElement('div', { className: 'settings-content' },
         React.createElement('div', { className: 'modal-input-group' },
           React.createElement('label', null, 'Current Email'),
@@ -2680,7 +2680,7 @@ function SettingsModal(props) {
         ),
         React.createElement('button', { className: 'btn primary', onClick: handleChangeEmail, disabled: loading }, loading ? 'Updating...' : 'Update Email')
       ),
-      
+
       tab === 'password' && React.createElement('div', { className: 'settings-content' },
         React.createElement('div', { className: 'modal-input-group' },
           React.createElement('label', null, 'Current Password'),
@@ -2696,7 +2696,7 @@ function SettingsModal(props) {
         ),
         React.createElement('button', { className: 'btn primary', onClick: handleChangePassword, disabled: loading }, loading ? 'Changing...' : 'Change Password')
       ),
-      
+
       tab === 'danger' && React.createElement('div', { className: 'settings-content' },
         React.createElement('div', { className: 'danger-zone' },
           React.createElement('h3', null, '⚠️ Danger Zone'),
@@ -2704,7 +2704,7 @@ function SettingsModal(props) {
           React.createElement('button', { className: 'btn danger', onClick: handleDeleteAccount, disabled: loading }, loading ? 'Deleting...' : 'Delete My Account')
         )
       ),
-      
+
       tab === 'theme' && React.createElement('div', { className: 'settings-content' },
         React.createElement('p', { style: { marginBottom: '12px', color: 'var(--text-secondary)' } }, 'Choose your preferred color theme'),
         React.createElement('div', { className: 'theme-grid' },
@@ -2731,7 +2731,7 @@ function GuestJoinModal(props) {
   var _name = useState('');
   var name = _name[0];
   var setName = _name[1];
-  
+
   var _isReturning = useState(false);
   var isReturning = _isReturning[0];
   var setIsReturning = _isReturning[1];
@@ -2752,20 +2752,20 @@ function GuestJoinModal(props) {
       React.createElement('h2', null, 'Join Room'),
       React.createElement('p', null, isReturning ? 'Enter your previous guest name to continue' : 'Enter a display name or join anonymously'),
       React.createElement('div', { className: 'modal-input-group' },
-        React.createElement('input', { 
-          type: 'text', 
-          value: name, 
-          onChange: function(e) { setName(e.target.value); }, 
-          placeholder: isReturning ? 'Your previous guest name' : 'Your name (optional)', 
-          autoFocus: true, 
-          onKeyDown: function(e) { if (e.key === 'Enter') handleJoin(); } 
+        React.createElement('input', {
+          type: 'text',
+          value: name,
+          onChange: function(e) { setName(e.target.value); },
+          placeholder: isReturning ? 'Your previous guest name' : 'Your name (optional)',
+          autoFocus: true,
+          onKeyDown: function(e) { if (e.key === 'Enter') handleJoin(); }
         })
       ),
-      React.createElement('button', { className: 'btn primary', onClick: handleJoin }, 
+      React.createElement('button', { className: 'btn primary', onClick: handleJoin },
         name.trim() ? (isReturning ? 'Continue as ' + name.trim() : 'Join as ' + name.trim()) : 'Join as Guest'
       ),
       React.createElement('div', { className: 'guest-modal-divider' }, React.createElement('span', null, 'or')),
-      !isReturning 
+      !isReturning
         ? React.createElement('button', { className: 'btn secondary', onClick: function() { setIsReturning(true); } }, 'I was here before')
         : React.createElement('button', { className: 'btn secondary', onClick: function() { setIsReturning(false); setName(''); } }, 'Join as new guest'),
       React.createElement('div', { className: 'guest-modal-divider' }, React.createElement('span', null, 'or')),
@@ -2780,31 +2780,31 @@ function GuestJoinModal(props) {
 function AuthScreen(props) {
   var embedded = props.embedded;
   var suggestedName = props.suggestedName;
-  
+
   var _mode = useState(embedded ? 'register' : 'login');
   var mode = _mode[0];
   var setMode = _mode[1];
-  
+
   var _email = useState('');
   var email = _email[0];
   var setEmail = _email[1];
-  
+
   var _username = useState('');
   var username = _username[0];
   var setUsername = _username[1];
-  
+
   var _password = useState('');
   var password = _password[0];
   var setPassword = _password[1];
-  
+
   var _displayName = useState(suggestedName || '');
   var displayName = _displayName[0];
   var setDisplayName = _displayName[1];
-  
+
   var _error = useState('');
   var error = _error[0];
   var setError = _error[1];
-  
+
   var _loading = useState(false);
   var loading = _loading[0];
   var setLoading = _loading[1];
@@ -2845,12 +2845,12 @@ function AuthScreen(props) {
           React.createElement('label', null, 'Password'),
           React.createElement('input', { type: 'password', value: password, onChange: function(e) { setPassword(e.target.value); }, required: true, placeholder: mode === 'register' ? 'Create a password' : 'Your password' })
         ),
-        React.createElement('button', { type: 'submit', className: 'btn primary full-width', disabled: loading }, 
+        React.createElement('button', { type: 'submit', className: 'btn primary full-width', disabled: loading },
           loading ? 'Please wait...' : (mode === 'login' ? 'Sign In' : 'Create Account')
         )
       ),
       React.createElement('div', { className: 'auth-switch' },
-        mode === 'login' 
+        mode === 'login'
           ? React.createElement('span', null, "Don't have an account? ", React.createElement('button', { type: 'button', className: 'link-btn', onClick: function() { setMode('register'); setError(''); } }, 'Sign up'))
           : React.createElement('span', null, 'Already have an account? ', React.createElement('button', { type: 'button', className: 'link-btn', onClick: function() { setMode('login'); setError(''); } }, 'Sign in'))
       )
@@ -2898,7 +2898,7 @@ function AuthScreen(props) {
           'Continue with Google'
         ),
         React.createElement('div', { className: 'auth-links' },
-          mode === 'login' 
+          mode === 'login'
             ? React.createElement(React.Fragment, null, React.createElement('span', null, 'New here? '), React.createElement('button', { type: 'button', onClick: function() { setMode('register'); setError(''); } }, 'Create account'))
             : React.createElement(React.Fragment, null, React.createElement('span', null, 'Have an account? '), React.createElement('button', { type: 'button', onClick: function() { setMode('login'); setError(''); } }, 'Sign in'))
         )
@@ -2912,39 +2912,39 @@ function AuthScreen(props) {
 // ============================================
 function HomePage(props) {
   var user = props.user;
-  
+
   var _rooms = useState([]);
   var rooms = _rooms[0];
   var setRooms = _rooms[1];
-  
+
   var _visitedRooms = useState([]);
   var visitedRooms = _visitedRooms[0];
   var setVisitedRooms = _visitedRooms[1];
-  
+
   var _showCreate = useState(false);
   var showCreate = _showCreate[0];
   var setShowCreate = _showCreate[1];
-  
+
   var _newRoomName = useState('');
   var newRoomName = _newRoomName[0];
   var setNewRoomName = _newRoomName[1];
-  
+
   var _editingRoom = useState(null);
   var editingRoom = _editingRoom[0];
   var setEditingRoom = _editingRoom[1];
-  
+
   var _editName = useState('');
   var editName = _editName[0];
   var setEditName = _editName[1];
-  
+
   var _settingsOpen = useState(false);
   var settingsOpen = _settingsOpen[0];
   var setSettingsOpen = _settingsOpen[1];
-  
+
   var _notification = useState(null);
   var notification = _notification[0];
   var setNotification = _notification[1];
-  
+
   var _loading = useState(true);
   var loading = _loading[0];
   var setLoading = _loading[1];
@@ -2957,13 +2957,13 @@ function HomePage(props) {
       api.rooms.list().then(function(r) {
         if (!r || r.length === 0) return api.rooms.create('My Room').then(function(room) { return [room]; });
         return r;
-      }).catch(function(err) { 
+      }).catch(function(err) {
         console.error('Error loading rooms:', err);
-        return []; 
+        return [];
       }),
-      api.rooms.getVisited().catch(function(err) { 
+      api.rooms.getVisited().catch(function(err) {
         console.error('Error loading visited rooms:', err);
-        return []; 
+        return [];
       })
     ]).then(function(results) {
       setRooms(results[0] || []);
@@ -3032,7 +3032,7 @@ function HomePage(props) {
     var diffMins = Math.floor(diffMs / 60000);
     var diffHours = Math.floor(diffMs / 3600000);
     var diffDays = Math.floor(diffMs / 86400000);
-    
+
     if (diffMins < 1) return 'just now';
     if (diffMins < 60) return diffMins + 'm ago';
     if (diffHours < 24) return diffHours + 'h ago';
@@ -3075,7 +3075,7 @@ function HomePage(props) {
           rooms.map(function(room) {
             return React.createElement('div', { key: room.id, className: 'room-card' },
               React.createElement('div', { className: 'room-card-content' },
-                editingRoom === room.id 
+                editingRoom === room.id
                   ? React.createElement('input', { type: 'text', value: editName, onChange: function(e) { setEditName(e.target.value); }, onBlur: function() { renameRoom(room.id); }, onKeyDown: function(e) { if (e.key === 'Enter') renameRoom(room.id); if (e.key === 'Escape') setEditingRoom(null); }, autoFocus: true, className: 'room-edit-input' })
                   : React.createElement('h3', null, room.name),
                 React.createElement('div', { className: 'room-meta' },
@@ -3093,7 +3093,7 @@ function HomePage(props) {
           })
         )
       ),
-      
+
       // Visited Rooms Section
       visitedRooms.length > 0 && React.createElement('div', { className: 'rooms-section visited-rooms-section' },
         React.createElement('div', { className: 'rooms-header' },
@@ -3133,143 +3133,143 @@ function Room(props) {
   var hostId = props.hostId;
   var guestDisplayName = props.guestDisplayName;
   var onKicked = props.onKicked;
-  
+
   var _playlists = useState([]);
   var playlists = _playlists[0];
   var setPlaylists = _playlists[1];
-  
+
   var _activePlaylist = useState(null);
   var activePlaylist = _activePlaylist[0];
   var setActivePlaylist = _activePlaylist[1];
   var activePlaylistIdRef = useRef(null); // Track active playlist ID persistently
-  
+
   var _copiedVideo = useState(null);
   var copiedVideo = _copiedVideo[0];
   var setCopiedVideo = _copiedVideo[1];
-  
+
   var _queueContextMenu = useState(null);
   var queueContextMenu = _queueContextMenu[0];
   var setQueueContextMenu = _queueContextMenu[1];
-  
+
   var _isPlaylistOwner = useState(false);
   var isPlaylistOwner = _isPlaylistOwner[0];
   var setIsPlaylistOwner = _isPlaylistOwner[1];
-  
+
   var _currentVideo = useState(null);
   var currentVideo = _currentVideo[0];
   var setCurrentVideo = _currentVideo[1];
-  
+
   var _currentIndex = useState(-1);
   var currentIndex = _currentIndex[0];
   var setCurrentIndex = _currentIndex[1];
-  
+
   var _playbackState = useState('paused');
   var playbackState = _playbackState[0];
   var setPlaybackState = _playbackState[1];
-  
+
   var _playbackTime = useState(0);
   var playbackTime = _playbackTime[0];
   var setPlaybackTime = _playbackTime[1];
-  
+
   var _urlInput = useState('');
   var urlInput = _urlInput[0];
   var setUrlInput = _urlInput[1];
-  
+
   var _uploading = useState(false);
   var uploading = _uploading[0];
   var setUploading = _uploading[1];
-  
+
   var _uploadProgress = useState(0);
   var uploadProgress = _uploadProgress[0];
   var setUploadProgress = _uploadProgress[1];
-  
+
   var fileInputRef = useRef(null);
-  
+
   var _sidebarOpen = useState(window.innerWidth > 768);
   var sidebarOpen = _sidebarOpen[0];
   var setSidebarOpen = _sidebarOpen[1];
-  
+
   var _mobileQueueOpen = useState(false);
   var mobileQueueOpen = _mobileQueueOpen[0];
   var setMobileQueueOpen = _mobileQueueOpen[1];
-  
+
   var _mobileNotesOpen = useState(false);
   var mobileNotesOpen = _mobileNotesOpen[0];
   var setMobileNotesOpen = _mobileNotesOpen[1];
-  
+
   var _roomName = useState(room.name);
   var roomName = _roomName[0];
   var setRoomName = _roomName[1];
-  
+
   var _editingRoomName = useState(false);
   var editingRoomName = _editingRoomName[0];
   var setEditingRoomName = _editingRoomName[1];
-  
+
   var _roomNameInput = useState('');
   var roomNameInput = _roomNameInput[0];
   var setRoomNameInput = _roomNameInput[1];
-  
+
   var _shareModalOpen = useState(false);
   var shareModalOpen = _shareModalOpen[0];
   var setShareModalOpen = _shareModalOpen[1];
-  
+
   var _settingsOpen = useState(false);
   var settingsOpen = _settingsOpen[0];
   var setSettingsOpen = _settingsOpen[1];
-  
+
   var _connectedPanelOpen = useState(false);
   var connectedPanelOpen = _connectedPanelOpen[0];
   var setConnectedPanelOpen = _connectedPanelOpen[1];
-  
+
   var _showAuthModal = useState(false);
   var showAuthModal = _showAuthModal[0];
   var setShowAuthModal = _showAuthModal[1];
-  
+
   var _notification = useState(null);
   var notification = _notification[0];
   var setNotification = _notification[1];
-  
+
   var _autoplay = useState(true);
   var autoplay = _autoplay[0];
   var setAutoplay = _autoplay[1];
-  
+
   var _shuffle = useState(false);
   var shuffle = _shuffle[0];
   var setShuffle = _shuffle[1];
-  
+
   var _loop = useState(false);
   var loop = _loop[0];
   var setLoop = _loop[1];
-  
+
   // Notes panel (right side panel for current video notes)
   var _notesPanelOpen = useState(false);
   var notesPanelOpen = _notesPanelOpen[0];
   var setNotesPanelOpen = _notesPanelOpen[1];
-  
+
   // Note: Per-video notes hiding is now stored in each video object (video.notesHidden)
   // No room-level hideNotes state needed
-  
+
   // Sort mode for queue (null = manual, 'alpha' = alphabetical A-Z, 'alpha-desc' = Z-A)
   var _queueSortMode = useState(null);
   var queueSortMode = _queueSortMode[0];
   var setQueueSortMode = _queueSortMode[1];
-  
+
   // Personal volume control (0-100, not synced to room)
   var _volume = useState(parseInt(localStorage.getItem('multiview_volume') || '100', 10));
   var volume = _volume[0];
   var setVolume = _volume[1];
-  
+
   // Refs to track latest toggle values for use in callbacks
   var autoplayRef = useRef(autoplay);
   var shuffleRef = useRef(shuffle);
   var loopRef = useRef(loop);
-  
+
   // Refs for playlist state (avoid stale closures in callbacks)
   var activePlaylistRef = useRef(activePlaylist);
   var currentIndexRef = useRef(currentIndex);
   var currentVideoRef = useRef(currentVideo);
   var handleVideoEndedRef = useRef(null);
-  
+
   // Keep refs updated when state changes
   useEffect(function() { autoplayRef.current = autoplay; }, [autoplay]);
   useEffect(function() { shuffleRef.current = shuffle; }, [shuffle]);
@@ -3277,7 +3277,7 @@ function Room(props) {
   useEffect(function() { activePlaylistRef.current = activePlaylist; }, [activePlaylist]);
   useEffect(function() { currentIndexRef.current = currentIndex; }, [currentIndex]);
   useEffect(function() { currentVideoRef.current = currentVideo; }, [currentVideo]);
-  
+
   // Save volume to localStorage and apply to player
   useEffect(function() {
     localStorage.setItem('multiview_volume', volume.toString());
@@ -3288,13 +3288,13 @@ function Room(props) {
       } catch (e) {}
     }
   }, [volume]);
-  
+
   // Sync global playlist options for background playback
   useEffect(function() {
     globalPlaylist.setOptions(autoplay, shuffle, loop);
     console.log('GlobalPlaylist: Options updated - autoplay:', autoplay, 'shuffle:', shuffle, 'loop:', loop);
   }, [autoplay, shuffle, loop]);
-  
+
   // Broadcast playback options when changed (only if not during initial sync)
   function updatePlaybackOptions(newAutoplay, newShuffle, newLoop) {
     api.rooms.updateOptions(room.id, {
@@ -3303,7 +3303,7 @@ function Room(props) {
       loop: newLoop
     }).catch(console.error);
   }
-  
+
   // Sync global playlist videos when active playlist changes
   useEffect(function() {
     if (activePlaylist && activePlaylist.videos) {
@@ -3312,22 +3312,22 @@ function Room(props) {
       globalPlaylist.setPlaylist([], -1);
     }
   }, [activePlaylist]);
-  
+
   // Sync global playlist index when current index changes
   useEffect(function() {
     globalPlaylist.setIndex(currentIndex);
   }, [currentIndex]);
-  
+
   // Set up global callback to sync React state when video changes in background
   useEffect(function() {
     globalPlaylist.onVideoChange = function(video, index) {
       console.log('GlobalPlaylist: Video changed, tab visible:', document.visibilityState === 'visible');
-      
+
       // Store pending change - DON'T sync React state immediately in background
       // React state updates cause re-renders which recreate the YouTube player
       globalPlaylist.pendingVideo = video;
       globalPlaylist.pendingIndex = index;
-      
+
       // Only sync React state if tab is visible
       if (document.visibilityState === 'visible') {
         console.log('GlobalPlaylist: Tab visible, syncing React state immediately');
@@ -3344,7 +3344,7 @@ function Room(props) {
         broadcastState(video, 'playing', 0);
       }
     };
-    
+
     // Sync pending changes when tab becomes visible
     function syncPendingChanges() {
       if (document.visibilityState === 'visible' && globalPlaylist.pendingVideo) {
@@ -3353,7 +3353,7 @@ function Room(props) {
         var index = globalPlaylist.pendingIndex;
         globalPlaylist.pendingVideo = null;
         globalPlaylist.pendingIndex = null;
-        
+
         setCurrentVideo(video);
         setCurrentIndex(index);
         setPlaybackState('playing');
@@ -3368,9 +3368,9 @@ function Room(props) {
         }
       }
     }
-    
+
     document.addEventListener('visibilitychange', syncPendingChanges);
-    
+
     globalYTPlayer.onVideoEndCallback = function() {
       if (handleVideoEndedRef.current) {
         handleVideoEndedRef.current();
@@ -3384,18 +3384,18 @@ function Room(props) {
       document.removeEventListener('visibilitychange', syncPendingChanges);
     };
   }, []);
-  
+
   // Close queue context menu on click
   useEffect(function() {
     function closeQueueMenu() { setQueueContextMenu(null); }
     document.addEventListener('click', closeQueueMenu);
     return function() { document.removeEventListener('click', closeQueueMenu); };
   }, []);
-  
+
   var _connectedUsers = useState([]);
   var connectedUsers = _connectedUsers[0];
   var setConnectedUsers = _connectedUsers[1];
-  
+
   var syncInterval = useRef(null);
   var lastLocalChange = useRef(0);
   var pendingBroadcast = useRef(null); // Queue broadcast during initial sync
@@ -3417,7 +3417,7 @@ function Room(props) {
   useEffect(function() {
     // Only check after initial sync has happened
     if (!hasConfirmedJoin.current) return;
-    
+
     // If no users connected, pause the video locally
     // Don't broadcast - this is just a local safeguard
     if (connectedUsers.length === 0) {
@@ -3439,7 +3439,7 @@ function Room(props) {
           var visId = m.visitorId || m.guestId;
           return visId === visitorId;
         });
-        
+
         if (stillInRoom) {
           // User is in room, confirm join
           hasConfirmedJoin.current = true;
@@ -3451,38 +3451,38 @@ function Room(props) {
           return;
         }
         // If not confirmed yet and not in list, just wait - still joining
-        
+
         setConnectedUsers(data.members);
-        
+
         // Note: Removed auto-pause when room empty - it was causing issues
         // when owner rejoins (their presence is not registered yet on first sync)
       }
-      
+
       if (data.playlists) {
         setPlaylists(data.playlists);
         if (data.isPlaylistOwner !== undefined) {
           setIsPlaylistOwner(data.isPlaylistOwner);
         }
-        
+
         // Sync notes to currentVideo from ANY playlist (not just active)
         // This ensures notes sync even when user hasn't selected a playlist
         if (currentVideoRef.current && data.playlists.length > 0) {
           var freshVideo = null;
-          
+
           // Search all playlists for the current video
           for (var pIdx = 0; pIdx < data.playlists.length && !freshVideo; pIdx++) {
             var pVideos = data.playlists[pIdx].videos || [];
-            
+
             // Try to find by ID first
             if (currentVideoRef.current.id && currentVideoRef.current.id.length > 30) {
               freshVideo = pVideos.find(function(v) { return v.id === currentVideoRef.current.id; });
             }
-            
+
             // Try by URL
             if (!freshVideo && currentVideoRef.current.url) {
               freshVideo = pVideos.find(function(v) { return v.url === currentVideoRef.current.url; });
             }
-            
+
             // Try by video ID match
             if (!freshVideo && currentVideoRef.current.url) {
               var currentParsed = parseVideoUrl(currentVideoRef.current.url);
@@ -3494,11 +3494,11 @@ function Room(props) {
               }
             }
           }
-          
+
           if (freshVideo) {
             // Check if we need to update currentVideo
             var needsUpdate = false;
-            
+
             // Missing DB ID - update with full object
             if (!currentVideoRef.current.id || currentVideoRef.current.id.length < 30) {
               console.log('>>> Updating currentVideo with full DB object');
@@ -3512,10 +3512,10 @@ function Room(props) {
               var freshUpdatedBy = freshVideo.notesUpdatedBy || '';
               var currentHidden = currentVideoRef.current.notesHidden || false;
               var freshHidden = freshVideo.notesHidden || false;
-              
+
               if (currentNotes !== freshNotes || currentUpdatedBy !== freshUpdatedBy || currentHidden !== freshHidden) {
                 console.log('>>> Syncing notes - content changed:', currentNotes !== freshNotes, 'editor:', currentUpdatedBy, '->', freshUpdatedBy, 'hidden:', currentHidden, '->', freshHidden);
-                setCurrentVideo(Object.assign({}, currentVideoRef.current, { 
+                setCurrentVideo(Object.assign({}, currentVideoRef.current, {
                   notes: freshVideo.notes,
                   notesUpdatedBy: freshVideo.notesUpdatedBy,
                   notesUpdatedAt: freshVideo.notesUpdatedAt,
@@ -3525,7 +3525,7 @@ function Room(props) {
             }
           }
         }
-        
+
         // Use ref to reliably track which playlist should be active
         var targetId = activePlaylistIdRef.current;
         if (targetId) {
@@ -3541,21 +3541,21 @@ function Room(props) {
         }
         // Do not auto-select - let user choose
       }
-      
+
       // Skip sync if we made a local change recently
       // BUT always allow the first video sync to happen
       var timeSinceLocalChange = Date.now() - (lastLocalChange.current || 0);
       if (timeSinceLocalChange < 2000 && hasInitialVideoSync.current) {
         return;
       }
-      
+
       // Sync from server
       if (data.room) {
         // Sync room name
         if (data.room.name && data.room.name !== roomName) {
           setRoomName(data.room.name);
         }
-        
+
         // Sync playback options (autoplay, shuffle, loop) from server
         if (data.room.autoplay !== undefined && data.room.autoplay !== autoplay) {
           setAutoplay(data.room.autoplay);
@@ -3566,14 +3566,14 @@ function Room(props) {
         if (data.room.loop !== undefined && data.room.loop !== loop) {
           setLoop(data.room.loop);
         }
-        
+
         // Sync active playlist from server (only if we don't have one selected locally)
         // This ensures new users joining see the same playlist the room is using
         if (data.room.currentPlaylistId && data.playlists) {
           var serverPlaylistId = data.room.currentPlaylistId;
           // Only sync if we haven't selected a playlist yet, or if the server has a different one
           // and we made no recent local change
-          if (!activePlaylistIdRef.current || 
+          if (!activePlaylistIdRef.current ||
               (serverPlaylistId !== activePlaylistIdRef.current && timeSinceLocalChange >= 2000)) {
             var serverPlaylist = data.playlists.find(function(p) { return p.id === serverPlaylistId; });
             if (serverPlaylist) {
@@ -3583,23 +3583,23 @@ function Room(props) {
             }
           }
         }
-        
+
         var serverUrl = data.room.currentVideoUrl;
         var serverState = data.room.playbackState || 'paused';
         var serverTime = data.room.playbackTime || 0;
-        
+
         if (serverUrl) {
           // Extract video ID for comparison
           var serverParsed = parseVideoUrl(serverUrl);
           var serverVideoId = serverParsed ? serverParsed.id : serverUrl;
-          
+
           // Only update video if ID actually changed
           if (serverVideoId !== currentVideoIdRef.current) {
             console.log('>>> NEW VIDEO:', serverVideoId, 'state:', serverState, 'time:', serverTime.toFixed(1));
             currentVideoIdRef.current = serverVideoId;
             lastSyncedState.current = serverState;
             lastSyncedTime.current = serverTime;
-            
+
             // Try to find the actual video object from playlists to get database UUID
             // Match by URL or by extracted video ID (handles different YouTube URL formats)
             var foundVideo = null;
@@ -3622,7 +3622,7 @@ function Room(props) {
                 }
               }
             }
-            
+
             if (foundVideo) {
               console.log('>>> Found video in playlist with DB id:', foundVideo.id);
               setCurrentVideo(foundVideo);
@@ -3637,11 +3637,11 @@ function Room(props) {
             } else {
               console.log('>>> Video not found in playlists, creating temporary (notes disabled)');
               // Fallback: create temporary video object (notes won't work but playback will)
-              setCurrentVideo({ 
+              setCurrentVideo({
                 id: null, // No DB id available - notes will be disabled
                 youtubeId: serverVideoId,
-                title: data.room.currentVideoTitle || serverUrl, 
-                url: serverUrl 
+                title: data.room.currentVideoTitle || serverUrl,
+                url: serverUrl
               });
             }
             setPlaybackState(serverState);
@@ -3651,7 +3651,7 @@ function Room(props) {
             var stateChanged = serverState !== lastSyncedState.current;
             var timeDiff = Math.abs(serverTime - lastSyncedTime.current);
             var timeChanged = timeDiff > 1; // Sync if > 1 second difference
-            
+
             if (stateChanged) {
               // Safeguard: Don't switch to 'playing' if video has truly ended (state 0)
               // This prevents stale 'playing' state from server from restarting a finished video
@@ -3671,21 +3671,21 @@ function Room(props) {
                   }
                 } catch (e) {}
               }
-              
+
               if (shouldApplyState) {
                 console.log('>>> STATE CHANGE:', lastSyncedState.current, '->', serverState);
                 lastSyncedState.current = serverState;
                 setPlaybackState(serverState);
               }
             }
-            
+
             if (timeChanged) {
               // Only sync time if it makes sense:
               // - If paused, sync to server time
               // - If playing, only sync if server is AHEAD (someone else seeked forward)
               // - Don't sync backwards during playback (server time is just stale)
               var shouldSyncTime = true;
-              
+
               if (serverState === 'playing' || lastSyncedState.current === 'playing') {
                 // Get current player position
                 var currentPlayerTime = 0;
@@ -3694,7 +3694,7 @@ function Room(props) {
                     currentPlayerTime = globalYTPlayer.player.getCurrentTime() || 0;
                   } catch (e) {}
                 }
-                
+
                 // Only sync if server is ahead of current position (forward seek)
                 // Don't sync backwards - that's just stale server data
                 if (serverTime < currentPlayerTime - 2) {
@@ -3704,7 +3704,7 @@ function Room(props) {
                   lastSyncedTime.current = currentPlayerTime;
                 }
               }
-              
+
               if (shouldSyncTime) {
                 console.log('>>> TIME SYNC:', lastSyncedTime.current, '->', serverTime, '(diff:', timeDiff, ')');
                 lastSyncedTime.current = serverTime;
@@ -3738,22 +3738,22 @@ function Room(props) {
     hasConfirmedJoin.current = false; // Reset join confirmation
     hasInitialVideoSync.current = false; // Reset video sync flag
     joinTime.current = Date.now(); // Track join time
-    
+
     // Check if this is a returning guest
     var returningGuestName = localStorage.getItem('returning_guest_' + room.id);
     if (returningGuestName) {
       localStorage.removeItem('returning_guest_' + room.id); // Clear after use
     }
-    
+
     api.rooms.join(room.id, displayName, returningGuestName).then(function() {
       console.log('Joined room, syncing...');
       syncRoomState();
-      
+
       // Allow broadcasting after initial sync settles (3 seconds)
       setTimeout(function() {
         console.log('Initial sync complete, enabling broadcasts');
         isInitialSync.current = false;
-        
+
         // Send any queued broadcast from user interactions during initial sync
         if (pendingBroadcast.current) {
           console.log('>>> Sending queued broadcast');
@@ -3763,57 +3763,57 @@ function Room(props) {
         }
       }, 3000);
     }).catch(console.error);
-    
+
     // Regular sync interval for video state
     syncInterval.current = setInterval(function() {
       syncRoomState();
     }, SYNC_INTERVAL);
-    
+
     // Use Web Worker for heartbeat to avoid browser throttling in background tabs
     // Regular setInterval gets throttled to ~1 minute in background, Worker doesn't
     var heartbeatWorkerCode = 'setInterval(function(){postMessage("heartbeat")},3000)';
     var heartbeatBlob = new Blob([heartbeatWorkerCode], { type: 'application/javascript' });
     var heartbeatWorkerUrl = URL.createObjectURL(heartbeatBlob);
     var heartbeatWorker = new Worker(heartbeatWorkerUrl);
-    
+
     heartbeatWorker.onmessage = function() {
       api.presence.heartbeat(room.id, 'online').catch(console.error);
     };
-    
+
     // Also send immediate heartbeat
     api.presence.heartbeat(room.id, 'online').catch(console.error);
-    
+
     // Backup regular interval for browsers that don't support workers well
     var heartbeatInterval = setInterval(function() {
       api.presence.heartbeat(room.id, 'online').catch(console.error);
     }, 10000); // Less frequent as backup
-    
+
     // Handle visibility changes - sync when tab becomes visible
     function handleVisibilityChange() {
       if (document.visibilityState === 'visible') {
         console.log('Tab visible - forcing sync from server...');
         api.presence.heartbeat(room.id, 'online').catch(console.error);
-        
+
         // Reset sync tracking refs to force accepting server state
         // This ensures we always get the latest state after being away
         lastSyncedState.current = null;
         lastSyncedTime.current = -1;
-        
+
         // Sync from server
         syncRoomState();
       }
     }
-    
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('focus', function() {
       api.presence.heartbeat(room.id, 'online').catch(console.error);
-      
+
       // Also force sync on focus
       lastSyncedState.current = null;
       lastSyncedTime.current = -1;
       syncRoomState();
     });
-    
+
     return function() {
       clearInterval(syncInterval.current);
       clearInterval(heartbeatInterval);
@@ -3837,17 +3837,17 @@ function Room(props) {
       console.log('>>> SKIPPING BROADCAST (local file)');
       return;
     }
-    
+
     // During initial sync, queue the broadcast for later
     if (isInitialSync.current) {
       console.log('>>> QUEUING BROADCAST (initial sync):', state, time);
       pendingBroadcast.current = { video: video, state: state, time: time };
       return;
     }
-    
+
     console.log('>>> BROADCASTING:', video ? video.url : null, state, time);
     lastLocalChange.current = Date.now();
-    
+
     api.rooms.updateSync(room.id, {
       currentVideoUrl: video ? video.url : null,
       currentVideoTitle: video ? (video.title || video.url) : null,
@@ -3865,16 +3865,16 @@ function Room(props) {
     console.log('Player state changed:', state, 'at', time);
     lastSyncedState.current = state;
     lastSyncedTime.current = time;
-    
+
     // Only mark as local change if not during initial sync
     // This prevents player load events from blocking sync
     if (!isInitialSync.current) {
       lastLocalChange.current = Date.now();
     }
-    
+
     setPlaybackState(state);
     setPlaybackTime(time);
-    
+
     // Do not broadcast during initial sync - prevents new users from affecting room state
     if (!isInitialSync.current) {
       broadcastState(currentVideo, state, time);
@@ -3884,14 +3884,14 @@ function Room(props) {
   function handlePlayerSeek(time) {
     console.log('Player seeked to:', time);
     lastSyncedTime.current = time;
-    
+
     // Only mark as local change if not during initial sync
     if (!isInitialSync.current) {
       lastLocalChange.current = Date.now();
     }
-    
+
     setPlaybackTime(time);
-    
+
     // Do not broadcast during initial sync
     if (!isInitialSync.current) {
       broadcastState(currentVideo, playbackState, time);
@@ -3905,17 +3905,17 @@ function Room(props) {
     currentVideoIdRef.current = videoId || video.url;
     lastSyncedState.current = 'playing';
     lastSyncedTime.current = 0;
-    
+
     // Close mobile queue panel when video is played
     if (window.innerWidth <= 768) {
       setMobileQueueOpen(false);
     }
-    
+
     // Directly load video in YouTube player (bypasses React state throttling in background tabs)
     if (videoId && parsed.type === 'youtube' && globalYTPlayer.loadVideo(videoId)) {
       console.log('Loaded video directly via global player');
     }
-    
+
     // Still update React state for UI sync
     setCurrentVideo(video);
     setCurrentIndex(index);
@@ -3927,51 +3927,51 @@ function Room(props) {
   function handleFileUpload(event) {
     var file = event.target.files && event.target.files[0];
     if (!file) return;
-    
+
     // Validate file type
-    var validTypes = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 
-                      'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/mp4', 'audio/ogg', 
+    var validTypes = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime',
+                      'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/mp4', 'audio/ogg',
                       'audio/flac', 'audio/aac', 'audio/x-m4a', 'audio/x-wav'];
     if (!validTypes.includes(file.type) && !file.name.match(/\.(mp4|webm|ogv|mov|mp3|wav|m4a|ogg|flac|aac)$/i)) {
       showNotif('File type not supported. Use mp4, webm, mp3, wav, m4a, ogg, or flac.', 'error');
       return;
     }
-    
+
     // Validate file size (4MB max - Netlify function limit)
-    if (file.size > 25 * 1024 * 1024) {
-      showNotif('File too large. Maximum size is 25MB.', 'error');
+    if (file.size > 10 * 1024 * 1024) {
+      showNotif('File too large. Maximum size is 10MB.', 'error');
       return;
     }
-    
+
     setUploading(true);
     setUploadProgress(0);
-    
+
     api.files.upload(file, room.id)
       .then(function(result) {
         setUploading(false);
         setUploadProgress(100);
-        
+
         // Determine if it's audio based on file type or response
         var isAudio = result.category === 'audio' || file.type.startsWith('audio/');
-        
+
         var videoData = {
           title: file.name,
           url: result.url,
           videoType: 'uploaded',
           isAudio: isAudio
         };
-        
+
         // If we have an active playlist, add to it
         if (activePlaylist) {
           api.playlists.addVideo(activePlaylist.id, videoData).then(function(video) {
             // Update local playlist
-            var updated = Object.assign({}, activePlaylist, { 
-              videos: (activePlaylist.videos || []).concat([video]) 
+            var updated = Object.assign({}, activePlaylist, {
+              videos: (activePlaylist.videos || []).concat([video])
             });
             setPlaylists(playlists.map(function(p) { return p.id === activePlaylist.id ? updated : p; }));
             setActivePlaylist(updated);
             showNotif('File uploaded and added to playlist!');
-            
+
             // Optionally play the uploaded file
             playVideo(video);
           });
@@ -3984,7 +3984,7 @@ function Room(props) {
           broadcastState(tempVideo, 'playing', 0);
           showNotif('File uploaded! Add to a playlist to save it.');
         }
-        
+
         // Reset file input
         if (fileInputRef.current) fileInputRef.current.value = '';
       })
@@ -4020,10 +4020,10 @@ function Room(props) {
 
   function handleVideoEnded() {
     console.log('=== handleVideoEnded called! ===');
-    
+
     // Stop any existing timer
     videoPlaybackTracker.stop();
-    
+
     // Use refs to get current values (avoid stale closures)
     var isLoop = loopRef.current;
     var isShuffle = shuffleRef.current;
@@ -4031,9 +4031,9 @@ function Room(props) {
     var playlist = activePlaylistRef.current;
     var idx = currentIndexRef.current;
     var video = currentVideoRef.current;
-    
+
     console.log('Video ended - loop:', isLoop, 'shuffle:', isShuffle, 'autoplay:', isAutoplay, 'index:', idx, 'playlist:', playlist ? playlist.name : 'none');
-    
+
     // Loop: replay current video
     if (isLoop) {
       // Directly seek and play using YouTube player API (bypasses React state throttling)
@@ -4041,7 +4041,7 @@ function Room(props) {
         console.log('Loop: Directly seeking to 0 and playing');
         globalYTPlayer.player.seekTo(0, true);
         globalYTPlayer.player.playVideo();
-        
+
         // Start timer for the full duration (since we are at 0)
         try {
           var duration = globalYTPlayer.player.getDuration();
@@ -4058,11 +4058,11 @@ function Room(props) {
       broadcastState(video, 'playing', 0);
       return;
     }
-    
+
     if (!playlist) return;
     var videos = playlist.videos || [];
     if (videos.length === 0) return;
-    
+
     // Shuffle: play random video from playlist
     if (isShuffle) {
       // Get a truly random index different from current
@@ -4070,7 +4070,7 @@ function Room(props) {
       for (var i = 0; i < videos.length; i++) {
         if (i !== idx) availableIndices.push(i);
       }
-      
+
       if (availableIndices.length > 0) {
         var randomIdx = availableIndices[Math.floor(Math.random() * availableIndices.length)];
         playVideo(videos[randomIdx], randomIdx);
@@ -4080,7 +4080,7 @@ function Room(props) {
           console.log('Shuffle single: Directly seeking to 0 and playing');
           globalYTPlayer.player.seekTo(0, true);
           globalYTPlayer.player.playVideo();
-          
+
           // Start timer for the full duration
           try {
             var dur = globalYTPlayer.player.getDuration();
@@ -4097,19 +4097,19 @@ function Room(props) {
       }
       return;
     }
-    
+
     // Autoplay: play next video in order
     if (isAutoplay && idx < videos.length - 1) {
       playVideo(videos[idx + 1], idx + 1);
       return;
     }
-    
+
     // No autoplay/shuffle/loop - video ends, pause state
     console.log('Video ended with no autoplay/shuffle/loop - pausing');
     setPlaybackState('paused');
     broadcastState(video, 'paused', video ? globalYTPlayer.player.getDuration() : 0);
   }
-  
+
   // Keep ref updated for global callback
   handleVideoEndedRef.current = handleVideoEnded;
 
@@ -4146,15 +4146,15 @@ function Room(props) {
     // Broadcast playlist change to sync with other users
     broadcastPlaylistChange(playlist ? playlist.id : null);
   }
-  
+
   // Broadcast just the playlist selection without affecting video playback
   function broadcastPlaylistChange(playlistId) {
     // Don't broadcast during initial sync
     if (isInitialSync.current) return;
-    
+
     console.log('>>> BROADCASTING PLAYLIST:', playlistId);
     lastLocalChange.current = Date.now();
-    
+
     api.rooms.updateSync(room.id, {
       currentPlaylistId: playlistId
     }).catch(function(err) {
@@ -4175,9 +4175,9 @@ function Room(props) {
     if (!confirm('Delete playlist?')) return;
     api.playlists.delete(id).then(function() {
       setPlaylists(playlists.filter(function(p) { return p.id !== id; }));
-      if (activePlaylist && activePlaylist.id === id) { 
-        selectPlaylist(null); 
-        setCurrentVideo(null); 
+      if (activePlaylist && activePlaylist.id === id) {
+        selectPlaylist(null);
+        setCurrentVideo(null);
       }
       showNotif('Deleted!', 'warning');
     });
@@ -4335,7 +4335,7 @@ function Room(props) {
 
   function updateVideoNotes(videoId, notes, editorName) {
     if (!activePlaylist) return;
-    
+
     // Validate that videoId is a valid UUID (not a YouTube video ID)
     // UUIDs are 36 characters with dashes, YouTube IDs are ~11 characters
     if (!videoId || videoId.length < 30) {
@@ -4343,24 +4343,24 @@ function Room(props) {
       showNotif('Cannot save notes - video not in playlist');
       return;
     }
-    
+
     console.log('>>> Saving notes for video:', videoId, 'by:', editorName);
     api.playlists.updateVideo(activePlaylist.id, videoId, { notes: notes, notesUpdatedBy: editorName }).then(function() {
       console.log('>>> Notes saved successfully');
       var now = new Date().toISOString();
-      var updated = Object.assign({}, activePlaylist, { 
-        videos: (activePlaylist.videos || []).map(function(v) { 
-          return v.id === videoId ? Object.assign({}, v, { notes: notes, notesUpdatedBy: editorName, notesUpdatedAt: now }) : v; 
-        }) 
+      var updated = Object.assign({}, activePlaylist, {
+        videos: (activePlaylist.videos || []).map(function(v) {
+          return v.id === videoId ? Object.assign({}, v, { notes: notes, notesUpdatedBy: editorName, notesUpdatedAt: now }) : v;
+        })
       });
       setPlaylists(playlists.map(function(p) { return p.id === activePlaylist.id ? updated : p; }));
       setActivePlaylist(updated);
       // Also update currentVideo if it's the one being edited
       if (currentVideo && currentVideo.id === videoId) {
-        setCurrentVideo(Object.assign({}, currentVideo, { 
-          notes: notes, 
-          notesUpdatedBy: editorName, 
-          notesUpdatedAt: now 
+        setCurrentVideo(Object.assign({}, currentVideo, {
+          notes: notes,
+          notesUpdatedBy: editorName,
+          notesUpdatedAt: now
         }));
       }
       showNotif('Notes saved!');
@@ -4380,16 +4380,16 @@ function Room(props) {
       // Update local state
       var updatedVideo = Object.assign({}, currentVideo, { notesHidden: newHidden });
       setCurrentVideo(updatedVideo);
-      
+
       // Update in playlist
-      var updated = Object.assign({}, activePlaylist, { 
-        videos: (activePlaylist.videos || []).map(function(v) { 
-          return v.id === currentVideo.id ? updatedVideo : v; 
-        }) 
+      var updated = Object.assign({}, activePlaylist, {
+        videos: (activePlaylist.videos || []).map(function(v) {
+          return v.id === currentVideo.id ? updatedVideo : v;
+        })
       });
       setPlaylists(playlists.map(function(p) { return p.id === activePlaylist.id ? updated : p; }));
       setActivePlaylist(updated);
-      
+
       showNotif(newHidden ? 'Notes hidden from guests for this video' : 'Notes visible to all for this video');
     }).catch(function(err) {
       console.error('Failed to toggle notes visibility:', err);
@@ -4436,12 +4436,12 @@ function Room(props) {
 
   return React.createElement('div', { className: 'dashboard' },
     React.createElement(DragonFire, null),
-    
+
     React.createElement('header', { className: 'dashboard-header' },
       React.createElement('div', { className: 'header-left' },
         React.createElement('button', { className: 'icon-btn', onClick: function() { setSidebarOpen(!sidebarOpen); } }, React.createElement(Icon, { name: 'menu' })),
         props.onHome && React.createElement('button', { className: 'icon-btn', onClick: props.onHome, title: 'Home' }, React.createElement(Icon, { name: 'home' })),
-        editingRoomName 
+        editingRoomName
           ? React.createElement('input', {
               className: 'room-title-input',
               value: roomNameInput,
@@ -4453,8 +4453,8 @@ function Room(props) {
               },
               autoFocus: true
             })
-          : React.createElement('h1', { 
-              className: 'room-title' + (isOwner ? ' editable' : ''), 
+          : React.createElement('h1', {
+              className: 'room-title' + (isOwner ? ' editable' : ''),
               onClick: isOwner ? function() { setEditingRoomName(true); setRoomNameInput(roomName); } : null,
               title: isOwner ? 'Click to rename' : null
             }, roomName)
@@ -4465,19 +4465,19 @@ function Room(props) {
           React.createElement('button', { className: 'icon-btn primary', onClick: playNow, title: 'Play Now' }, React.createElement(Icon, { name: 'play' })),
           React.createElement('button', { className: 'icon-btn', onClick: handleAddUrl, disabled: !activePlaylist, title: 'Add to Playlist' }, React.createElement(Icon, { name: 'plus' })),
           // Hidden file input
-          React.createElement('input', { 
+          React.createElement('input', {
             ref: fileInputRef,
-            type: 'file', 
+            type: 'file',
             accept: 'video/mp4,video/webm,video/ogg,video/quicktime,audio/mpeg,audio/mp3,audio/wav,audio/mp4,audio/ogg,audio/flac,audio/aac,.mp4,.webm,.ogv,.mov,.mp3,.wav,.m4a,.ogg,.flac,.aac',
             onChange: handleFileUpload,
             style: { display: 'none' }
           }),
-          React.createElement('button', { 
-            className: 'icon-btn' + (uploading ? ' uploading' : ''), 
-            onClick: function() { if (!uploading && fileInputRef.current) fileInputRef.current.click(); }, 
+          React.createElement('button', {
+            className: 'icon-btn' + (uploading ? ' uploading' : ''),
+            onClick: function() { if (!uploading && fileInputRef.current) fileInputRef.current.click(); },
             disabled: uploading,
             title: uploading ? 'Uploading...' : 'Upload Audio/Video File'
-          }, uploading 
+          }, uploading
             ? React.createElement('span', { className: 'upload-spinner' }, '⏳')
             : React.createElement(Icon, { name: 'upload' })
           )
@@ -4485,27 +4485,27 @@ function Room(props) {
       ),
       React.createElement('div', { className: 'header-right' },
         React.createElement('button', { className: 'btn secondary sm', onClick: function() { setShareModalOpen(true); } }, React.createElement(Icon, { name: 'share', size: 'sm' }), ' Share'),
-        user 
+        user
           ? React.createElement(UserMenu, { user: user, onSettings: function() { setSettingsOpen(true); }, onLogout: props.onLogout, onHome: props.onHome })
           : React.createElement(GuestMenu, { displayName: displayName, onCreateAccount: function() { setShowAuthModal(true); } })
       )
     ),
-    
+
     React.createElement('div', { className: 'dashboard-content' },
       // Sidebar overlay for mobile - closes sidebar when tapped
-      sidebarOpen && React.createElement('div', { 
+      sidebarOpen && React.createElement('div', {
         className: 'sidebar-overlay visible',
         onClick: function() { setSidebarOpen(false); }
       }),
-      
+
       React.createElement('aside', { className: 'sidebar' + (sidebarOpen ? '' : ' closed') },
-        React.createElement(PlaylistPanel, { 
-          playlists: playlists, 
-          activePlaylist: activePlaylist, 
-          onSelect: selectPlaylist, 
-          onCreate: handleCreatePlaylist, 
-          onDelete: handleDeletePlaylist, 
-          onRename: handleRenamePlaylist, 
+        React.createElement(PlaylistPanel, {
+          playlists: playlists,
+          activePlaylist: activePlaylist,
+          onSelect: selectPlaylist,
+          onCreate: handleCreatePlaylist,
+          onDelete: handleDeletePlaylist,
+          onRename: handleRenamePlaylist,
           onReorder: handleReorderPlaylists,
           onHide: handleHidePlaylist,
           onAddVideoToPlaylist: handleAddVideoToPlaylist,
@@ -4516,22 +4516,22 @@ function Room(props) {
           onClose: function() { setSidebarOpen(false); }
         })
       ),
-      
+
       React.createElement('main', { className: 'main-content' },
         // Mobile queue overlay
-        mobileQueueOpen && React.createElement('div', { 
+        mobileQueueOpen && React.createElement('div', {
           className: 'queue-overlay visible',
           onClick: function() { setMobileQueueOpen(false); }
         }),
-        
+
         React.createElement('div', { className: 'queue-panel' + (mobileQueueOpen ? ' mobile-open' : ''), onContextMenu: handleQueueContextMenu },
-          React.createElement('div', { className: 'queue-header' }, 
+          React.createElement('div', { className: 'queue-header' },
             React.createElement('h3', null, '📜 ', activePlaylist ? activePlaylist.name : 'Select Playlist'),
             React.createElement('div', { className: 'queue-header-actions' },
               // Sort dropdown button
               React.createElement('div', { className: 'sort-dropdown' },
-                React.createElement('button', { 
-                  className: 'icon-btn sm' + (queueSortMode ? ' active' : ''), 
+                React.createElement('button', {
+                  className: 'icon-btn sm' + (queueSortMode ? ' active' : ''),
                   title: 'Sort: ' + (queueSortMode === 'alpha' ? 'A-Z' : queueSortMode === 'alpha-desc' ? 'Z-A' : 'Manual'),
                   onClick: function() {
                     // Cycle through: null -> alpha -> alpha-desc -> null
@@ -4539,20 +4539,20 @@ function Room(props) {
                     else if (queueSortMode === 'alpha') setQueueSortMode('alpha-desc');
                     else setQueueSortMode(null);
                   }
-                }, React.createElement(Icon, { name: 'sort-alpha', size: 'sm' }), 
+                }, React.createElement(Icon, { name: 'sort-alpha', size: 'sm' }),
                    queueSortMode && React.createElement('span', { className: 'sort-indicator' }, queueSortMode === 'alpha' ? '↓' : '↑')
                 )
               ),
-              React.createElement('button', { 
+              React.createElement('button', {
                 className: 'queue-close-btn',
                 onClick: function() { setMobileQueueOpen(false); }
               }, React.createElement(Icon, { name: 'x', size: 'sm' }))
             )
           ),
-          activePlaylist 
+          activePlaylist
             ? React.createElement(DraggableVideoList, { videos: getSortedVideos(activePlaylist.videos || []), currentVideo: currentVideo, onPlay: playVideo, onRemove: removeVideo, onRename: renameVideo, onReorder: reorderVideos, onCopy: handleCopyVideo, sortMode: queueSortMode })
             : React.createElement('div', { className: 'empty-queue' }, React.createElement('p', null, 'Select a playlist')),
-          
+
           // Queue panel context menu
           queueContextMenu && activePlaylist && React.createElement('div', {
             className: 'context-menu',
@@ -4570,13 +4570,13 @@ function Room(props) {
             )
           )
         ),
-        
+
         React.createElement('div', { className: 'video-section' },
-          React.createElement(VideoPlayer, { 
+          React.createElement(VideoPlayer, {
             key: currentVideo ? currentVideo.url : 'no-video',
-            video: currentVideo, 
-            playbackState: playbackState, 
-            playbackTime: playbackTime, 
+            video: currentVideo,
+            playbackState: playbackState,
+            playbackTime: playbackTime,
             onStateChange: handlePlayerStateChange,
             onSeek: handlePlayerSeek,
             onEnded: handleVideoEnded,
@@ -4585,29 +4585,29 @@ function Room(props) {
           React.createElement('div', { className: 'playback-controls' },
             React.createElement('button', { className: 'btn sm', onClick: playPrev, disabled: !activePlaylist || currentIndex <= 0 }, React.createElement(Icon, { name: 'prev', size: 'sm' }), ' Prev'),
             React.createElement('div', { className: 'playback-toggles' },
-              React.createElement('button', { 
-                className: 'icon-btn toggle' + (shuffle ? ' active' : ''), 
-                onClick: function() { 
+              React.createElement('button', {
+                className: 'icon-btn toggle' + (shuffle ? ' active' : ''),
+                onClick: function() {
                   var newShuffle = !shuffle;
                   var newAutoplay = newShuffle ? true : autoplay;
-                  setShuffle(newShuffle); 
+                  setShuffle(newShuffle);
                   if (newShuffle) setAutoplay(true);
                   updatePlaybackOptions(newAutoplay, newShuffle, loop);
                 },
                 title: 'Shuffle' + (shuffle ? ' (On)' : ' (Off)')
               }, React.createElement(Icon, { name: 'shuffle', size: 'sm' })),
-              React.createElement('button', { 
-                className: 'icon-btn toggle' + (loop ? ' active' : ''), 
-                onClick: function() { 
+              React.createElement('button', {
+                className: 'icon-btn toggle' + (loop ? ' active' : ''),
+                onClick: function() {
                   var newLoop = !loop;
                   setLoop(newLoop);
                   updatePlaybackOptions(autoplay, shuffle, newLoop);
                 },
                 title: 'Loop' + (loop ? ' (On)' : ' (Off)')
               }, React.createElement(Icon, { name: 'loop', size: 'sm' })),
-              React.createElement('button', { 
-                className: 'icon-btn toggle' + (autoplay ? ' active' : ''), 
-                onClick: function() { 
+              React.createElement('button', {
+                className: 'icon-btn toggle' + (autoplay ? ' active' : ''),
+                onClick: function() {
                   var newAutoplay = !autoplay;
                   setAutoplay(newAutoplay);
                   updatePlaybackOptions(newAutoplay, shuffle, loop);
@@ -4616,8 +4616,8 @@ function Room(props) {
               }, React.createElement(Icon, { name: 'autoplay', size: 'sm' }))
             ),
             React.createElement('div', { className: 'now-playing' },
-              currentVideo 
-                ? React.createElement(React.Fragment, null, 
+              currentVideo
+                ? React.createElement(React.Fragment, null,
                     React.createElement('span', { className: 'playing-label' }, playbackState === 'playing' ? '▶ Playing' : '⏸ Paused'),
                     React.createElement('span', { className: 'playing-title' }, currentVideo.title || currentVideo.url)
                   )
@@ -4625,12 +4625,12 @@ function Room(props) {
             ),
             React.createElement('div', { className: 'volume-control' },
               React.createElement(Icon, { name: volume === 0 ? 'volume-x' : (volume < 50 ? 'volume-1' : 'volume-2'), size: 'sm' }),
-              React.createElement('input', { 
-                type: 'range', 
+              React.createElement('input', {
+                type: 'range',
                 className: 'volume-slider',
-                min: 0, 
-                max: 100, 
-                value: volume, 
+                min: 0,
+                max: 100,
+                value: volume,
                 onChange: function(e) { setVolume(parseInt(e.target.value, 10)); },
                 title: 'Volume: ' + volume + '%'
               })
@@ -4638,16 +4638,16 @@ function Room(props) {
             React.createElement('button', { className: 'btn sm', onClick: playNext, disabled: !activePlaylist || currentIndex >= ((activePlaylist && activePlaylist.videos || []).length) - 1 }, 'Next ', React.createElement(Icon, { name: 'next', size: 'sm' })),
             // Notes toggle button - always visible so owner can toggle and users can see notes exist
             // Desktop: toggles notes panel, Mobile: opens slide-up panel
-            React.createElement('button', { 
-              className: 'icon-btn toggle notes-toggle' + (notesPanelOpen || mobileNotesOpen ? ' active' : '') + (currentVideo && currentVideo.notesHidden && !isOwner ? ' hidden-indicator' : ''), 
-              onClick: function() { 
+            React.createElement('button', {
+              className: 'icon-btn toggle notes-toggle' + (notesPanelOpen || mobileNotesOpen ? ' active' : '') + (currentVideo && currentVideo.notesHidden && !isOwner ? ' hidden-indicator' : ''),
+              onClick: function() {
                 // Check if mobile (based on viewport width)
                 if (window.innerWidth <= 768) {
                   var newState = !mobileNotesOpen;
                   setMobileNotesOpen(newState);
                   if (newState) { setSidebarOpen(false); setMobileQueueOpen(false); setShareModalOpen(false); setSettingsOpen(false); setConnectedPanelOpen(false); }
                 } else {
-                  setNotesPanelOpen(!notesPanelOpen); 
+                  setNotesPanelOpen(!notesPanelOpen);
                 }
               },
               title: currentVideo && currentVideo.notesHidden && !isOwner ? 'Notes (hidden by owner)' : 'Video Notes'
@@ -4655,7 +4655,7 @@ function Room(props) {
           ),
           React.createElement(ConnectedUsers, { users: connectedUsers, isHost: isOwner, currentUserId: visitorId, roomId: room.id, onKick: handleKick, onRename: handleRenameUser, onColorChange: handleColorChange })
         ),
-        
+
         // Notes Panel (collapsible right panel) - always render, content changes based on visibility
         React.createElement('aside', { className: 'notes-panel' + (notesPanelOpen ? '' : ' closed') },
           React.createElement('div', { className: 'notes-panel-header' },
@@ -4666,14 +4666,14 @@ function Room(props) {
                 onClick: toggleVideoNotesHidden,
                 title: currentVideo.notesHidden ? 'Notes hidden from guests (click to show)' : 'Notes visible to all (click to hide)'
               }, React.createElement(Icon, { name: currentVideo.notesHidden ? 'eyeOff' : 'eye', size: 'sm' })),
-              React.createElement('button', { 
-                className: 'icon-btn sm', 
+              React.createElement('button', {
+                className: 'icon-btn sm',
                 onClick: function() { setNotesPanelOpen(false); }
               }, React.createElement(Icon, { name: 'chevron-right', size: 'sm' }))
             )
           ),
           React.createElement('div', { className: 'notes-panel-content' },
-            currentVideo 
+            currentVideo
               ? React.createElement(VideoNotesEditor, {
                   video: currentVideo,
                   onSave: updateVideoNotes,
@@ -4685,57 +4685,57 @@ function Room(props) {
         )
       )
     ),
-    
+
     // Mobile bottom navigation
     React.createElement('nav', { className: 'mobile-nav' },
       React.createElement('div', { className: 'mobile-nav-items' },
-        React.createElement('button', { 
+        React.createElement('button', {
           className: 'mobile-nav-item' + (sidebarOpen ? ' active' : ''),
-          onClick: function() { 
+          onClick: function() {
             var newState = !sidebarOpen;
-            setSidebarOpen(newState); 
+            setSidebarOpen(newState);
             if (newState) { setMobileQueueOpen(false); setShareModalOpen(false); setSettingsOpen(false); setConnectedPanelOpen(false); }
           }
         },
           React.createElement(Icon, { name: 'menu' }),
           React.createElement('span', null, 'Playlists')
         ),
-        React.createElement('button', { 
+        React.createElement('button', {
           className: 'mobile-nav-item' + (mobileQueueOpen ? ' active' : ''),
-          onClick: function() { 
+          onClick: function() {
             var newState = !mobileQueueOpen;
-            setMobileQueueOpen(newState); 
+            setMobileQueueOpen(newState);
             if (newState) { setSidebarOpen(false); setShareModalOpen(false); setSettingsOpen(false); setConnectedPanelOpen(false); }
           }
         },
           React.createElement(Icon, { name: 'list' }),
           React.createElement('span', null, 'Queue')
         ),
-        React.createElement('button', { 
+        React.createElement('button', {
           className: 'mobile-nav-item' + (connectedPanelOpen ? ' active' : ''),
-          onClick: function() { 
+          onClick: function() {
             var newState = !connectedPanelOpen;
-            setConnectedPanelOpen(newState); 
+            setConnectedPanelOpen(newState);
             if (newState) { setSidebarOpen(false); setMobileQueueOpen(false); setShareModalOpen(false); setSettingsOpen(false); }
           }
         },
           React.createElement(Icon, { name: 'users' }),
           React.createElement('span', null, 'Users')
         ),
-        React.createElement('button', { 
+        React.createElement('button', {
           className: 'mobile-nav-item' + (shareModalOpen ? ' active' : ''),
-          onClick: function() { 
+          onClick: function() {
             var newState = !shareModalOpen;
-            setShareModalOpen(newState); 
+            setShareModalOpen(newState);
             if (newState) { setSidebarOpen(false); setMobileQueueOpen(false); setSettingsOpen(false); setConnectedPanelOpen(false); }
           }
         },
           React.createElement(Icon, { name: 'share' }),
           React.createElement('span', null, 'Share')
         ),
-        React.createElement('button', { 
+        React.createElement('button', {
           className: 'mobile-nav-item' + (settingsOpen ? ' active' : ''),
-          onClick: function() { 
+          onClick: function() {
             if (!user) { setShowAuthModal(true); return; }
             var newState = !settingsOpen;
             setSettingsOpen(newState);
@@ -4747,13 +4747,13 @@ function Room(props) {
         )
       )
     ),
-    
+
     // Panel overlay (closes any open panel when tapped)
-    (shareModalOpen || connectedPanelOpen || settingsOpen || mobileNotesOpen) && React.createElement('div', { 
+    (shareModalOpen || connectedPanelOpen || settingsOpen || mobileNotesOpen) && React.createElement('div', {
       className: 'panel-overlay visible',
       onClick: function() { setShareModalOpen(false); setConnectedPanelOpen(false); setSettingsOpen(false); setMobileNotesOpen(false); }
     }),
-    
+
     // Share slide-up panel
     React.createElement('div', { className: 'slide-panel share-panel' + (shareModalOpen ? ' open' : '') },
       React.createElement('div', { className: 'slide-panel-header' },
@@ -4768,15 +4768,15 @@ function Room(props) {
         )
       )
     ),
-    
-    // Connected Users slide-up panel  
+
+    // Connected Users slide-up panel
     React.createElement('div', { className: 'slide-panel connected-panel' + (connectedPanelOpen ? ' open' : '') },
       React.createElement('div', { className: 'slide-panel-header' },
         React.createElement('h3', null, '👥 In Room (', connectedUsers.length, ')'),
         React.createElement('button', { className: 'panel-close-btn', onClick: function() { setConnectedPanelOpen(false); } }, React.createElement(Icon, { name: 'x', size: 'sm' }))
       ),
       React.createElement('div', { className: 'slide-panel-content' },
-        connectedUsers.length === 0 
+        connectedUsers.length === 0
           ? React.createElement('p', { className: 'empty-message' }, 'No one else is here yet. Share the room link to invite friends!')
           : React.createElement('div', { className: 'users-list-panel' },
               connectedUsers.map(function(u) {
@@ -4786,21 +4786,21 @@ function Room(props) {
                 var isGuest = u.guestId || (u.visitorId && u.visitorId.startsWith('guest_'));
                 var statusClass = u.status || 'offline';
                 return React.createElement('div', { key: u.visitorId || u.guestId, className: 'user-list-item' + (isCurrentUser ? ' current' : '') + (u.isOwner ? ' owner' : '') },
-                  React.createElement('div', { className: 'user-avatar', style: { background: userColor } }, 
+                  React.createElement('div', { className: 'user-avatar', style: { background: userColor } },
                     u.isOwner ? '👑' : uDisplayName.charAt(0).toUpperCase()
                   ),
                   React.createElement('div', { className: 'user-info' },
-                    React.createElement('span', { className: 'user-name' }, 
-                      uDisplayName, 
+                    React.createElement('span', { className: 'user-name' },
+                      uDisplayName,
                       isCurrentUser && ' (You)',
                       isGuest && !isCurrentUser && React.createElement('span', { className: 'guest-tag' }, ' (guest)')
                     ),
-                    React.createElement('span', { className: 'user-status ' + statusClass }, 
+                    React.createElement('span', { className: 'user-status ' + statusClass },
                       statusClass === 'online' ? '● Connected' : '○ Away'
                     )
                   ),
-                  isOwner && !isCurrentUser && React.createElement('button', { 
-                    className: 'icon-btn sm danger', 
+                  isOwner && !isCurrentUser && React.createElement('button', {
+                    className: 'icon-btn sm danger',
                     onClick: function() { handleKick(u.visitorId || u.guestId); },
                     title: 'Kick user'
                   }, React.createElement(Icon, { name: 'x', size: 'sm' }))
@@ -4809,7 +4809,7 @@ function Room(props) {
             )
       )
     ),
-    
+
     // Mobile Notes slide-up panel - always render, content changes based on visibility
     React.createElement('div', { className: 'slide-panel notes-panel-mobile' + (mobileNotesOpen ? ' open' : '') },
       React.createElement('div', { className: 'slide-panel-header' },
@@ -4824,7 +4824,7 @@ function Room(props) {
         )
       ),
       React.createElement('div', { className: 'slide-panel-content' },
-        currentVideo 
+        currentVideo
           ? React.createElement(VideoNotesEditor, {
               video: currentVideo,
               onSave: updateVideoNotes,
@@ -4834,7 +4834,7 @@ function Room(props) {
           : React.createElement('div', { className: 'notes-empty' }, 'Select a video to view or edit notes')
       )
     ),
-    
+
     // Settings slide-up panel (mobile only - hidden on desktop via CSS)
     React.createElement('div', { className: 'slide-panel settings-panel' + (settingsOpen && user ? ' open' : '') },
       React.createElement('div', { className: 'slide-panel-header' },
@@ -4843,12 +4843,12 @@ function Room(props) {
       ),
       user && React.createElement(SettingsContent, { user: user, onUpdate: props.onUpdateUser, onLogout: function() { props.onLogout(); setSettingsOpen(false); } })
     ),
-    
+
     // Desktop Settings Modal (desktop only - hidden on mobile via CSS)
     settingsOpen && user && React.createElement('div', { className: 'desktop-settings-modal' },
       React.createElement(SettingsModal, { user: user, onClose: function() { setSettingsOpen(false); }, onUpdate: props.onUpdateUser, onLogout: props.onLogout })
     ),
-    
+
     // Desktop Share Modal (desktop only - hidden on mobile via CSS)
     shareModalOpen && React.createElement('div', { className: 'desktop-share-modal' },
       React.createElement('div', { className: 'modal-overlay', onClick: function() { setShareModalOpen(false); } },
@@ -4863,13 +4863,13 @@ function Room(props) {
         )
       )
     ),
-    
+
     // Auth modal for guests to create account (keep as modal)
     showAuthModal && React.createElement('div', { className: 'modal-overlay', onClick: function() { setShowAuthModal(false); } },
       React.createElement('div', { className: 'modal auth-modal-in-room', onClick: function(e) { e.stopPropagation(); } },
         React.createElement('button', { className: 'modal-close', onClick: function() { setShowAuthModal(false); } }, '×'),
-        React.createElement(AuthScreen, { 
-          onAuth: function(newUser) { 
+        React.createElement(AuthScreen, {
+          onAuth: function(newUser) {
             props.onUpdateUser(newUser);
             setShowAuthModal(false);
             showNotif('Account created! Welcome, ' + newUser.displayName);
@@ -4879,7 +4879,7 @@ function Room(props) {
         })
       )
     ),
-    
+
     notification && React.createElement('div', { className: 'notification ' + notification.type }, notification.message)
   );
 }
@@ -4891,35 +4891,35 @@ function MultiviewApp() {
   var _user = useState(null);
   var user = _user[0];
   var setUser = _user[1];
-  
+
   var _loading = useState(true);
   var loading = _loading[0];
   var setLoading = _loading[1];
-  
+
   var _currentView = useState('home');
   var currentView = _currentView[0];
   var setCurrentView = _currentView[1];
-  
+
   var _currentRoom = useState(null);
   var currentRoom = _currentRoom[0];
   var setCurrentRoom = _currentRoom[1];
-  
+
   var _roomHostId = useState(null);
   var roomHostId = _roomHostId[0];
   var setRoomHostId = _roomHostId[1];
-  
+
   var _guestDisplayName = useState(null);
   var guestDisplayName = _guestDisplayName[0];
   var setGuestDisplayName = _guestDisplayName[1];
-  
+
   var _showGuestModal = useState(false);
   var showGuestModal = _showGuestModal[0];
   var setShowGuestModal = _showGuestModal[1];
-  
+
   var _showAuthScreen = useState(false);
   var showAuthScreen = _showAuthScreen[0];
   var setShowAuthScreen = _showAuthScreen[1];
-  
+
   var _pendingRoom = useState(null);
   var pendingRoom = _pendingRoom[0];
   var setPendingRoom = _pendingRoom[1];
@@ -4964,13 +4964,13 @@ function MultiviewApp() {
 
   function handleGuestJoin(name, isReturning) {
     if (!pendingRoom) return;
-    
+
     if (isReturning && name) {
       // Try to find existing guest session by name in this room
       // Store the returning guest name so join can look it up
       localStorage.setItem('returning_guest_' + pendingRoom.room.id, name);
     }
-    
+
     setCurrentRoom(pendingRoom.room);
     setRoomHostId(pendingRoom.hostId);
     setGuestDisplayName(name);
@@ -5030,13 +5030,13 @@ function MultiviewApp() {
 
   if (showAuthScreen) return React.createElement(AuthScreen, { onAuth: handleAuthComplete });
 
-  if (!user && currentView !== 'room') return React.createElement(AuthScreen, { onAuth: function(u) { 
-    setUser(u); 
+  if (!user && currentView !== 'room') return React.createElement(AuthScreen, { onAuth: function(u) {
+    setUser(u);
     // Apply user's saved theme on login
     var userTheme = localStorage.getItem('theme_' + u.id) || 'gold';
     document.documentElement.setAttribute('data-theme', userTheme);
-    var ri = parseRoomUrl(); 
-    if (ri) handleJoinFromUrl(ri.hostId, ri.roomId, u); 
+    var ri = parseRoomUrl();
+    if (ri) handleJoinFromUrl(ri.hostId, ri.roomId, u);
   } });
 
   if (currentView === 'room' && currentRoom) return React.createElement(Room, { user: user, room: currentRoom, hostId: roomHostId, guestDisplayName: guestDisplayName, onHome: user ? handleGoHome : null, onLogout: handleLogout, onUpdateUser: setUser, onKicked: handleKicked });
