@@ -219,7 +219,7 @@ export const handler = async (event, context) => {
         return { 
           statusCode: 400, 
           headers, 
-          body: JSON.stringify({ error: `File too large (${(file.buffer.length / 1024 / 1024).toFixed(1)}MB). Maximum size is 4MB.` }) 
+          body: JSON.stringify({ error: `File too large (${(file.buffer.length / 1024 / 1024).toFixed(1)}MB). Maximum size is 25MB.` }) 
         };
       }
       
